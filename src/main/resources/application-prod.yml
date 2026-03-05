@@ -1,0 +1,42 @@
+# =========================================================================
+# PRODUCTION PROFILE (application-prod.yml)
+# =========================================================================
+# Use this for GKE/Cloud deployments with real GCP resources.
+# Settings here override application.yml.
+#
+# TUTORIAL: In production, hardcoding secrets or instance IDs is a security
+# risk. Instead, Spring Boot resolves these properties dynamically from
+# injected environment variables like ${GCP_PROJECT_ID}.
+# =========================================================================
+
+spring:
+  cloud:
+    gcp:
+      # Configurations for real GCP Spanner databases
+      spanner:
+        project-id: ${GCP_PROJECT_ID}
+        instance-id: ${SPANNER_INSTANCE_ID}
+        database: ${SPANNER_DATABASE_ID}
+      # Configurations for GCP AlloyDB
+      alloydb:
+        project-id: ${GCP_PROJECT_ID}
+        region: ${ALLOYDB_REGION}
+        cluster: ${ALLOYDB_CLUSTER_ID}
+        instance: ${ALLOYDB_INSTANCE_ID}
+        database: ${ALLOYDB_DATABASE_ID}
+
+  # Production Kafka targets (managed Kafka, Confluent Cloud, etc.)
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS}
+    properties:
+      schema.registry.url: ${SCHEMA_REGISTRY_URL}
+
+app:
+  database:
+    # Enables the real Spanner transaction layer rather than the local H2 fallback
+    spanner-enabled: true
+
+logging:
+  level:
+    # Keeps logging at an appropriate level for production
+    com.example.springkafkapoc: INFO

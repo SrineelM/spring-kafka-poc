@@ -1,0 +1,58 @@
+# =========================================================================
+# LOCAL PROFILE (application-local.yml)
+# =========================================================================
+# Use this for local development against Docker Desktop, testcontainers,
+# or local installations. Settings here override application.yml.
+#
+# TUTORIAL: When working locally, we typically mock or simulate cloud
+# providers. Here we use an in-memory H2 database instead of a
+# costly Google Cloud Spanner instance.
+# =========================================================================
+
+spring:
+  # Configure an H2 in-memory DB instead of a real persistence layer
+  datasource:
+    # MODE=PostgreSQL ensures H2 behaves slightly more like a real relational DB
+    url: jdbc:h2:mem:transactiondb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=PostgreSQL
+    username: sa
+    password: password
+    driver-class-name: org.h2.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+
+  # Access the H2 web console at localhost:8080/h2-console
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+  # Localhost pointers for Kafka infrastructure
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      transaction-id-prefix: ""
+    properties:
+      schema.registry.url: http://localhost:8081
+
+  cloud:
+    gcp:
+      alloydb:
+        enabled: false
+      spanner:
+        enabled: false
+      bigquery:
+        enabled: false
+      secretmanager:
+        enabled: false
+
+# Custom flags dictating architecture paths
+app:
+  database:
+    spanner-enabled: false # Instructs DynamicPersistenceRouter to use the local fallback (H2)
+
+logging:
+  level:
+    # Increases log verbosity locally so developers can debug transactions
+    com.example.springkafkapoc: DEBUG

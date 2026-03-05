@@ -1,0 +1,149 @@
+# =========================================================================
+# APPLICATION.YML - BASE CONFIGURATION
+# =========================================================================
+# This file contains the foundational configuration. Profiles like 'local'
+# or 'prod' will override or append to these base settings.
+#
+# TUTORIAL: Think of this as the "default" behavior of your application.
+# If a property is not defined in an active profile, Spring Boot falls
+# back to the value defined here.
+# =========================================================================
+
+spring:
+  application:
+    name: spring-kafka-poc # Unique identifier for this application, useful in distributed tracing
+
+  profiles:
+    # Determines which environment configuration to load (e.g., application-local.yml)
+    # If SPRING_PROFILES_ACTIVE is set in the environment, it uses that; otherwise 'local'
+    active: ${SPRING_PROFILES_ACTIVE:local}
+
+  jpa:
+    hibernate:
+      # 'validate' ensures that the entity structure matches the database schema at startup.
+      # It doesn't write to the DB, making it a safe default for production.
+      ddl-auto: validate
+    # Disables printing SQL to the console to prevent log clutter
+    show-sql: false
+    properties:
+      hibernate.format_sql: true # Formats SQL queries if they are ever printed (via trace logging)
+
+  # -----------------------------------------------------------------------
+  # KAFKA CONFIGURATION
+  # -----------------------------------------------------------------------
+  kafka:
+    producer:
+      # Transaction ID prefix. Critical for Exactly-Once Semantics (EOS).
+      # Each producer instance needs a unique prefix so Kafka can identify its transactions.
+      transaction-id-prefix: tx-poc-
+      # 'all' ensures the lead broker waits for all in-sync replicas to acknowledge the record.
+      # This provides the highest durability guarantee.
+      acks: all
+      # Overrides the default retry behavior in case of transient failures
+      retries: 10
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: io.confluent.kafka.serializers.KafkaAvroSerializer
+      properties:
+        # Idempotence is a prerequisite for transactions. It guarantees that even if a producer
+        # retries sending a message, it will only be written to the log exactly once.
+        enable.idempotence: "true"
+
+    consumer:
+      # If the consumer has no prior offset, start from the earliest available message.
+      auto-offset-reset: earliest
+      # Vital for manual acknowledgement and ensuring messages aren't lost if processing fails.
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: io.confluent.kafka.serializers.KafkaAvroDeserializer
+      properties:
+        # Ensures that a consumer will only read messages from transactions that were successfully committed.
+        # This prevents reading temporary/aborted data.
+        isolation.level: read_committed
+        # Tells the Avro deserializer to generate specific Avro classes instead of GenericRecords
+        specific.avro.reader: "true"
+        # The maximum number of records returned in a single call to poll()
+        max.poll.records: 500
+
+    listener:
+      # Manual Immediate Acknowledgment ensures Spring waits for the user to call acknowledgment.acknowledge()
+      ack-mode: MANUAL_IMMEDIATE
+      # Controls the number of threads per @KafkaListener. This should equal the number of partitions.
+      concurrency: ${app.kafka.partitions.pipeline:3}
+      # Enables Micrometer observation/tracing for listener methods
+      observation-enabled: true
+
+    template:
+      # Enables observation/tracing for the KafkaTemplate (when producing messages)
+      observation-enabled: true
+
+    streams:
+      # State tracking ID for Kafka Streams apps. Must be unique per topology.
+      application-id: spring-kafka-poc-streams
+      properties:
+        # Strongest processing guarantee (EOS). Guarantees every input record is processed exactly once.
+        processing.guarantee: exactly_once_v2
+
+# -------------------------------------------------------------------------
+# OBSERVABILITY & ACTUATOR CONFIGURATION
+# -------------------------------------------------------------------------
+management:
+  endpoints:
+    web:
+      exposure:
+        # Exposes specific actuator endpoints like health monitoring and prometheus metrics scraping
+        include: health,metrics,prometheus,info,env
+  endpoint:
+    health:
+      show-details: always # Shows detailed health information, helpful for debugging
+  tracing:
+    sampling:
+      probability: 1.0 # Sample 100% of traces. In prod, this should usually be lower (e.g., 0.1)
+
+# -------------------------------------------------------------------------
+# RESILIENCE4J CONFIGURATION
+# -------------------------------------------------------------------------
+# Tutorial: Circuit breakers act as an automated safety switch. If the DB
+# starts failing, the breaker "opens", preventing the application from
+# making requests, allowing the DB time to recover, and fast-failing users.
+resilience4j:
+  circuitbreaker:
+    instances:
+      databaseCircuitBreaker:
+        register-health-indicator: true
+        sliding-window-size: 5
+        failure-rate-threshold: 60
+        wait-duration-in-open-state: 20s
+        permitted-number-of-calls-in-half-open-state: 2
+        record-exceptions:
+          - org.springframework.dao.DataAccessException
+
+# -------------------------------------------------------------------------
+# CUSTOM APPLICATION PROPERTIES
+# -------------------------------------------------------------------------
+app:
+  kafka:
+    partitions:
+      pipeline: 3
+      metrics: 1
+    replication-factor: 1
+    streams:
+      threads: 3
+
+  bigquery:
+    health-check-interval-ms: 30000
+
+  outbox:
+    lock-ttl-ms: 30000
+
+# -------------------------------------------------------------------------
+# LOGGING CONFIGURATION
+# -------------------------------------------------------------------------
+logging:
+  pattern:
+    # Adds MDC context variables (traceId, spanId, correlationId) to every log line
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - [traceId=%X{traceId}, spanId=%X{spanId}, correlationId=%X{correlationId}] - %msg%n"
+  level:
+    root: INFO
+    org.springframework.kafka: INFO
+    org.apache.kafka: WARN
+    com.example.springkafkapoc: INFO

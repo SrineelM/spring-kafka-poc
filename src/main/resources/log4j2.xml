@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="WARN">
+    <Properties>
+        <!-- Log pattern includes %X{traceId} and %X{spanId} injected by Micrometer Tracing/OTel -->
+        <!-- This allows for perfect GCP Cloud Logging correlation -->
+        <Property name="LOG_PATTERN">%d{yyyy-MM-dd HH:mm:ss.SSS} [%15.15t] %-5level %logger{36} [traceId=%X{traceId}, spanId=%X{spanId}] - %msg%n</Property>
+    </Properties>
+
+    <Appenders>
+        <!-- Standard Console Appender -->
+        <Console name="Console" target="SYSTEM_OUT">
+            <PatternLayout pattern="${LOG_PATTERN}"/>
+        </Console>
+    </Appenders>
+
+    <Loggers>
+        <!-- Tune Spring Kafka Logging down to avoid unnecessary IO overhead, keep INFO for broker connectivity -->
+        <AsyncLogger name="org.springframework.kafka" level="INFO" includeLocation="false"/>
+        <AsyncLogger name="org.apache.kafka" level="WARN" includeLocation="false"/>
+        
+        <!-- Our application specific logger -->
+        <AsyncLogger name="com.example.springkafkapoc" level="DEBUG" includeLocation="false"/>
+
+        <!-- Making the Root logger asynchronous for performance (requires LMAX Disruptor) -->
+        <AsyncRoot level="INFO" includeLocation="false">
+            <AppenderRef ref="Console"/>
+        </AsyncRoot>
+    </Loggers>
+</Configuration>

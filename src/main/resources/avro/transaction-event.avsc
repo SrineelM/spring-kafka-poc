@@ -1,0 +1,39 @@
+{
+  "type": "record",
+  "name": "TransactionEvent",
+  "namespace": "com.example.springkafkapoc.avro",
+  "doc": "A schema representing a financial transaction event from the ingestion source.\n\nWHY GENERATED FILES ARE NOT COMMITTED:\nThis schema is the source of truth. The Java class `TransactionEvent.java` is generated\nfrom this file by the `avro-maven-plugin` during the build process (`mvn generate-sources`).\nCommitting generated code leads to drift and merge conflicts. Always edit this .avsc file instead.",
+  "fields": [
+    {
+      "name": "transactionId",
+      "type": "string",
+      "doc": "Unique identifier for the transaction. Also used as Kafka Key."
+    },
+    {
+      "name": "accountId",
+      "type": "string",
+      "doc": "The user account associated with the transaction."
+    },
+    {
+      "name": "amount",
+      "type": {
+        "type": "bytes",
+        "logicalType": "decimal",
+        "precision": 18,
+        "scale": 4
+      },
+      "doc": "Transaction amount. Uses Avro decimal logical type to avoid IEEE-754 float precision loss."
+    },
+    {
+      "name": "timestamp",
+      "type": "long",
+      "doc": "Epoch time in milliseconds."
+    },
+    {
+      "name": "processingState",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Marker representing the state of the transaction. E.g INITIAL, PROCESSED, FAILED"
+    }
+  ]
+}
