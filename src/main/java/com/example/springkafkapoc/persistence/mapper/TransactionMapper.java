@@ -7,18 +7,15 @@ import org.mapstruct.Mapper;
 /**
  * <b>MapStruct Mapper: Transaction</b>
  *
- * <p>
- * Handles mapping for the main Transaction data.
+ * <p>Handles mapping for the main Transaction data.
  *
- * <p>
- * Tutorial Tip: MapStruct is much faster than Reflection-based mappers (like
- * BeanUtils)
- * because it generates plain Java code during the Maven build. You can see the
- * generated implementation in {@code target/generated-sources}.
+ * <p>Tutorial Tip: MapStruct is much faster than Reflection-based mappers (like BeanUtils) because
+ * it generates plain Java code during the Maven build. You can see the generated implementation in
+ * {@code target/generated-sources}.
  */
 @Mapper(componentModel = "spring")
 public interface TransactionMapper {
-    TransactionEntity toEntity(Transaction domain);
+  TransactionEntity toEntity(Transaction domain);
 
-    Transaction toDomain(TransactionEntity entity);
+  Transaction toDomain(TransactionEntity entity);
 }

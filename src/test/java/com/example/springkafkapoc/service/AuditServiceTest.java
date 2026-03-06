@@ -15,27 +15,24 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class AuditServiceTest {
 
-    @Mock
-    private AuditLogRepository auditLogRepository;
+  @Mock private AuditLogRepository auditLogRepository;
 
-    @Mock
-    private AuditLogMapper mapper;
+  @Mock private AuditLogMapper mapper;
 
-    @InjectMocks
-    private AuditService auditService;
+  @InjectMocks private AuditService auditService;
 
-    @Test
-    void shouldRecordAuditLog() {
-        // Given
-        String transactionId = "transaction-1";
-        String accountId = "acc-1";
-        BigDecimal amount = new BigDecimal("100.00");
-        String detail = "Test Detail";
+  @Test
+  void shouldRecordAuditLog() {
+    // Given
+    String transactionId = "transaction-1";
+    String accountId = "acc-1";
+    BigDecimal amount = new BigDecimal("100.00");
+    String detail = "Test Detail";
 
-        // When
-        auditService.recordReceived(transactionId, accountId, amount, detail);
+    // When
+    auditService.recordReceived(transactionId, accountId, amount, detail);
 
-        // Then
-        verify(auditLogRepository).save(any());
-    }
+    // Then
+    verify(auditLogRepository).save(any());
+  }
 }

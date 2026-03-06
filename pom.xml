@@ -1,41 +1,52 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <!-- Maven POM model -->
     <modelVersion>4.0.0</modelVersion>
+
+    <!-- Spring Boot parent manages dependency versions -->
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
         <version>3.4.0</version>
-        <relativePath/> <!-- lookup parent from repository -->
+        <relativePath/>
     </parent>
 
+    <!-- Project coordinates -->
     <groupId>com.example</groupId>
     <artifactId>spring-kafka-poc</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>spring-kafka-poc</name>
-    <description>Spring Boot Kafka Data Ingestion &amp; Analytics Pipeline</description>
+    <description>Spring Boot Kafka Data Ingestion and Analytics Pipeline</description>
 
+    <!-- Global properties -->
     <properties>
         <java.version>21</java.version>
         <spring-cloud.version>2023.0.3</spring-cloud.version>
         <spring-cloud-gcp.version>5.11.0</spring-cloud-gcp.version>
         <avro.version>1.11.3</avro.version>
         <confluent.version>7.6.0</confluent.version>
-        <spotless.version>2.43.0</spotless.version>
-        <!-- SonarQube properties -->
+        <spotless.version>2.45.0</spotless.version>
+
+        <!-- Sonar configuration -->
         <sonar.projectKey>spring-kafka-poc</sonar.projectKey>
         <sonar.projectName>Spring Kafka Data Ingestion Pipeline</sonar.projectName>
-        <sonar.java.coveragePlugin>jacoco</sonar.java.coveragePlugin>
-        <sonar.coverage.jacoco.xmlReportPaths>${project.build.directory}/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
+        <sonar.coverage.jacoco.xmlReportPaths>
+            ${project.build.directory}/site/jacoco/jacoco.xml
+        </sonar.coverage.jacoco.xmlReportPaths>
     </properties>
 
+    <!-- Dependencies -->
     <dependencies>
-        <!-- Spring Boot Web (For Ingestion REST Endpoints) -->
+
+        <!-- Spring Web for ingestion REST endpoints -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
             <exclusions>
-                <!-- Exclude default logging to use Log4j2 -->
+                <!-- Exclude default logging because we use Log4j2 -->
                 <exclusion>
                     <groupId>org.springframework.boot</groupId>
                     <artifactId>spring-boot-starter-logging</artifactId>
@@ -43,153 +54,139 @@
             </exclusions>
         </dependency>
 
-        <!-- Spring Boot Validation Starter -->
+        <!-- Bean validation -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.springframework.boot</groupId>
-                    <artifactId>spring-boot-starter-logging</artifactId>
-                </exclusion>
-            </exclusions>
         </dependency>
 
-        <!-- Efficient High-Throughput Async Logging (Log4j2 + Disruptor) -->
+        <!-- High performance logging -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-log4j2</artifactId>
         </dependency>
+
+        <!-- Async logging disruptor -->
         <dependency>
             <groupId>com.lmax</groupId>
             <artifactId>disruptor</artifactId>
             <version>4.0.0</version>
         </dependency>
 
-        <!-- Spring Kafka & Kafka Streams -->
+        <!-- Kafka -->
         <dependency>
             <groupId>org.springframework.kafka</groupId>
             <artifactId>spring-kafka</artifactId>
         </dependency>
+
+        <!-- Kafka Streams -->
         <dependency>
             <groupId>org.apache.kafka</groupId>
             <artifactId>kafka-streams</artifactId>
         </dependency>
 
-        <!-- Spring Cloud GCP (Spanner, BigQuery, Secret Manager) -->
+        <!-- Google Cloud integrations -->
         <dependency>
             <groupId>com.google.cloud</groupId>
             <artifactId>spring-cloud-gcp-starter-data-spanner</artifactId>
         </dependency>
+
         <dependency>
             <groupId>com.google.cloud</groupId>
             <artifactId>spring-cloud-gcp-starter-bigquery</artifactId>
         </dependency>
+
         <dependency>
             <groupId>com.google.cloud</groupId>
             <artifactId>spring-cloud-gcp-starter-secretmanager</artifactId>
         </dependency>
+
         <dependency>
             <groupId>com.google.cloud</groupId>
             <artifactId>spring-cloud-gcp-starter-alloydb</artifactId>
         </dependency>
 
-        <!-- H2 Database (For Local Lower Env Testing) -->
+        <!-- Local runtime database -->
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
             <scope>runtime</scope>
         </dependency>
 
-        <!-- Avro Serialization -->
-        <dependency>
-            <groupId>org.apache.avro</groupId>
-            <artifactId>avro</artifactId>
-            <version>${avro.version}</version>
-        </dependency>
-        <!-- GCP Native Kafka Registry implements Confluent REST API -->
-        <dependency>
-            <groupId>io.confluent</groupId>
-            <artifactId>kafka-avro-serializer</artifactId>
-            <version>${confluent.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>io.confluent</groupId>
-            <artifactId>kafka-streams-avro-serde</artifactId>
-            <version>${confluent.version}</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.slf4j</groupId>
-                    <artifactId>slf4j-log4j12</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>log4j</groupId>
-                    <artifactId>log4j</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-
-        <!-- Resiliency & Database Support -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-jpa</artifactId>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.springframework.boot</groupId>
-                    <artifactId>spring-boot-starter-logging</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
+        <!-- Spanner Hibernate dialect -->
         <dependency>
             <groupId>com.google.cloud</groupId>
             <artifactId>google-cloud-spanner-hibernate-dialect</artifactId>
             <version>3.5.0</version>
         </dependency>
-        
-        <!-- Resilience4j (Circuit Breaker & Retry) -->
+
+        <!-- Avro -->
+        <dependency>
+            <groupId>org.apache.avro</groupId>
+            <artifactId>avro</artifactId>
+            <version>${avro.version}</version>
+        </dependency>
+
+        <!-- Confluent Avro serializer -->
+        <dependency>
+            <groupId>io.confluent</groupId>
+            <artifactId>kafka-avro-serializer</artifactId>
+            <version>${confluent.version}</version>
+        </dependency>
+
+        <!-- Kafka Streams Avro Serde -->
+        <dependency>
+            <groupId>io.confluent</groupId>
+            <artifactId>kafka-streams-avro-serde</artifactId>
+            <version>${confluent.version}</version>
+        </dependency>
+
+        <!-- JPA support -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+
+        <!-- Resilience4j -->
         <dependency>
             <groupId>io.github.resilience4j</groupId>
             <artifactId>resilience4j-spring-boot3</artifactId>
             <version>2.2.0</version>
         </dependency>
 
-        <!-- Distributed Lock for Outbox -->
+        <!-- Distributed locks -->
         <dependency>
             <groupId>org.springframework.integration</groupId>
             <artifactId>spring-integration-jdbc</artifactId>
         </dependency>
 
-        <!-- UUID Generation -->
+        <!-- UUID generator -->
         <dependency>
             <groupId>com.github.f4b6a3</groupId>
             <artifactId>uuid-creator</artifactId>
             <version>5.3.7</version>
         </dependency>
 
-        <!-- Observability (Actuator, Micrometer Tracing, OTel) -->
+        <!-- Actuator for metrics and health -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.springframework.boot</groupId>
-                    <artifactId>spring-boot-starter-logging</artifactId>
-                </exclusion>
-            </exclusions>
         </dependency>
+
+        <!-- OpenTelemetry bridge -->
         <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-tracing-bridge-otel</artifactId>
         </dependency>
 
-        <!-- Lombok (To reduce boilerplate code) -->
+        <!-- Lombok -->
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <optional>true</optional>
         </dependency>
 
-        <!-- MapStruct (Type-safe mapping between Entities and Domain Models) -->
+        <!-- MapStruct -->
         <dependency>
             <groupId>org.mapstruct</groupId>
             <artifactId>mapstruct</artifactId>
@@ -201,13 +198,8 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.springframework.boot</groupId>
-                    <artifactId>spring-boot-starter-logging</artifactId>
-                </exclusion>
-            </exclusions>
         </dependency>
+
         <dependency>
             <groupId>org.springframework.kafka</groupId>
             <artifactId>spring-kafka-test</artifactId>
@@ -217,34 +209,44 @@
                     <groupId>ch.qos.logback</groupId>
                     <artifactId>logback-classic</artifactId>
                 </exclusion>
+                <exclusion>
+                    <groupId>ch.qos.logback</groupId>
+                    <artifactId>logback-core</artifactId>
+                </exclusion>
             </exclusions>
         </dependency>
+
         <dependency>
             <groupId>org.apache.kafka</groupId>
             <artifactId>kafka-streams-test-utils</artifactId>
-            <version>${kafka.version}</version>
             <scope>test</scope>
         </dependency>
+
         <!-- Testcontainers -->
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
+
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>kafka</artifactId>
             <scope>test</scope>
         </dependency>
+
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>postgresql</artifactId>
             <scope>test</scope>
         </dependency>
+
     </dependencies>
 
+    <!-- Dependency BOM imports -->
     <dependencyManagement>
         <dependencies>
+
             <dependency>
                 <groupId>org.springframework.cloud</groupId>
                 <artifactId>spring-cloud-dependencies</artifactId>
@@ -252,6 +254,7 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+
             <dependency>
                 <groupId>com.google.cloud</groupId>
                 <artifactId>spring-cloud-gcp-dependencies</artifactId>
@@ -259,10 +262,11 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+
         </dependencies>
     </dependencyManagement>
 
-    <!-- Confluent Repository for Avro Serializer -->
+    <!-- External repositories -->
     <repositories>
         <repository>
             <id>confluent</id>
@@ -270,105 +274,126 @@
         </repository>
     </repositories>
 
+    <!-- Build plugins -->
     <build>
         <plugins>
-            <!-- Spring Boot Plugin -->
+
+            <!-- Spring Boot packaging -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
-                <configuration>
-                    <excludes>
-                        <exclude>
-                            <groupId>org.projectlombok</groupId>
-                            <artifactId>lombok</artifactId>
-                        </exclude>
-                    </excludes>
-                </configuration>
             </plugin>
-            
-            <!-- Maven Compiler Plugin with Lombok Annotation Processor -->
+
+            <!-- Java compilation -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
+
                 <configuration>
+                    <release>21</release>
+
                     <annotationProcessorPaths>
+
                         <path>
                             <groupId>org.projectlombok</groupId>
                             <artifactId>lombok</artifactId>
                             <version>1.18.30</version>
                         </path>
+
                         <path>
                             <groupId>org.mapstruct</groupId>
                             <artifactId>mapstruct-processor</artifactId>
                             <version>1.5.5.Final</version>
                         </path>
-                        <!-- Lombok Binding for MapStruct compatibility -->
+
                         <path>
                             <groupId>org.projectlombok</groupId>
                             <artifactId>lombok-mapstruct-binding</artifactId>
                             <version>0.2.0</version>
                         </path>
+
                     </annotationProcessorPaths>
                 </configuration>
+
             </plugin>
 
-            <!-- Avro Code Generation Plugin -->
+            <!-- Avro code generation -->
             <plugin>
                 <groupId>org.apache.avro</groupId>
                 <artifactId>avro-maven-plugin</artifactId>
                 <version>${avro.version}</version>
+
                 <executions>
                     <execution>
                         <phase>generate-sources</phase>
+
                         <goals>
                             <goal>schema</goal>
                         </goals>
+
                         <configuration>
-                            <sourceDirectory>${project.basedir}/src/main/resources/avro</sourceDirectory>
-                            <outputDirectory>${project.basedir}/src/main/java</outputDirectory>
-                            <!-- Generate String fields instead of CharSequence -->
+
+                            <sourceDirectory>
+                                ${project.basedir}/src/main/resources/avro
+                            </sourceDirectory>
+
+                            <outputDirectory>
+                                ${project.basedir}/src/main/java
+                            </outputDirectory>
+
                             <stringType>String</stringType>
                             <enableDecimalLogicalType>true</enableDecimalLogicalType>
+
                         </configuration>
                     </execution>
                 </executions>
+
             </plugin>
 
-            <!-- Spotless Plugin for Code Formatting -->
+            <!-- Code formatting -->
             <plugin>
+
                 <groupId>com.diffplug.spotless</groupId>
                 <artifactId>spotless-maven-plugin</artifactId>
                 <version>${spotless.version}</version>
+
                 <configuration>
                     <java>
-                        <palantirJavaFormat />
-                        <removeUnusedImports />
-                        <formatAnnotations />
+
+                        <googleJavaFormat>
+                            <version>1.22.0</version>
+                        </googleJavaFormat>
+
+                        <removeUnusedImports/>
+                        <formatAnnotations/>
+
                     </java>
                 </configuration>
+
                 <executions>
-                    <!--
-                        IMPORTANT: Bound to 'process-sources' (BEFORE compile).
-                        This way Spotless auto-corrects formatting on raw source files
-                        without ever being given a chance to block compilation.
-                        We use 'apply' (not 'check'), so it always fixes — never fails.
-                    -->
                     <execution>
+
                         <id>spotless-apply</id>
+
+                        <phase>process-sources</phase>
+
                         <goals>
                             <goal>apply</goal>
                         </goals>
-                        <phase>process-sources</phase>
+
                     </execution>
                 </executions>
+
             </plugin>
-            
-            <!-- SonarQube Scanner Plugin -->
+
+            <!-- Sonar scanner -->
             <plugin>
                 <groupId>org.sonarsource.scanner.maven</groupId>
                 <artifactId>sonar-maven-plugin</artifactId>
                 <version>3.10.0.2594</version>
             </plugin>
+
         </plugins>
     </build>
+
 </project>

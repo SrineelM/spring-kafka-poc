@@ -18,18 +18,12 @@ import org.springframework.transaction.support.TransactionTemplate;
 /**
  * <b>Batch Transaction Event Processor</b>
  *
- * <p>
- * TUTORIAL: This service demonstrates <b>Batched Consumption</b>. Instead of
- * receiving
- * one {@code ConsumerRecord} at a time, it receives a
- * {@code List<ConsumerRecord>}.
- * We can then process and persist all records in a single Database transaction,
- * which
- * drastically improves throughput by reducing network round-trips to the
- * database.
+ * <p>TUTORIAL: This service demonstrates <b>Batched Consumption</b>. Instead of receiving one
+ * {@code ConsumerRecord} at a time, it receives a {@code List<ConsumerRecord>}. We can then process
+ * and persist all records in a single Database transaction, which drastically improves throughput
+ * by reducing network round-trips to the database.
  *
- * <p>
- * This is activated only when the 'batch' profile is running.
+ * <p>This is activated only when the 'batch' profile is running.
  */
 @Slf4j
 @Service
@@ -37,20 +31,24 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Profile("batch")
 public class TransactionEventBatchProcessor {
 
-    private final TransactionPersistencePort persistencePort;
-    private final PlatformTransactionManager transactionManager;
+  private final TransactionPersistencePort persistencePort;
+  private final PlatformTransactionManager transactionManager;
 
-    @KafkaListener(
-            topics = TopicConstants.RAW_TRANSACTIONS,
-            groupId = "transaction-batch-group",
-            containerFactory = "batchKafkaListenerContainerFactory")
-    public void processTransactionBatch(List<ConsumerRecord<String, TransactionEvent>> records, Acknowledgment ack) {
-        log.info("Processing batch of {} transaction records", records.size());
+  @KafkaListener(
+      topics = TopicConstants.RAW_TRANSACTIONS,
+      groupId = "transaction-batch-group",
+      containerFactory = "batchKafkaListenerContainerFactory")
+  public void processTransactionBatch(
+      List<ConsumerRecord<String, TransactionEvent>> records, Acknowledgment ack) {
+    log.info("Processing batch of {} transaction records", records.size());
 
-        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-            for (ConsumerRecord<String, TransactionEvent> record : records) {
+    new TransactionTemplate(transactionManager)
+        .executeWithoutResult(
+            status -> {
+              for (ConsumerRecord<String, TransactionEvent> record : records) {
                 TransactionEvent event = record.value();
-                Transaction transaction = Transaction.builder()
+                Transaction transaction =
+                    Transaction.builder()
                         .transactionId(event.getTransactionId().toString())
                         .accountId(event.getAccountId().toString())
                         .amount(event.getAmount())
@@ -61,9 +59,9 @@ public class TransactionEventBatchProcessor {
                         .build();
 
                 persistencePort.save(transaction);
-            }
-        });
+              }
+            });
 
-        ack.acknowledge();
-    }
+    ack.acknowledge();
+  }
 }

@@ -14,12 +14,9 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * <b>AlloyDB Persistence Adapter</b>
  *
- * <p>
- * <b>TUTORIAL:</b> This implementation is for <b>Google Cloud AlloyDB</b> (a
- * PostgreSQL-compatible
- * database). It demonstrates how easy it is to switch between globally
- * distributed Spanner and
- * high-performance PostgreSQL-based storage using the Adapter pattern.
+ * <p><b>TUTORIAL:</b> This implementation is for <b>Google Cloud AlloyDB</b> (a
+ * PostgreSQL-compatible database). It demonstrates how easy it is to switch between globally
+ * distributed Spanner and high-performance PostgreSQL-based storage using the Adapter pattern.
  */
 @Slf4j
 @Service("alloyDbTransactionService")
@@ -27,25 +24,25 @@ import org.springframework.transaction.annotation.Transactional;
 @ConditionalOnProperty(name = "spring.cloud.gcp.alloydb.enabled", havingValue = "true")
 public class AlloyDbTransactionService implements TransactionPersistencePort {
 
-    private final TransactionRepository repository;
-    private final TransactionMapper mapper;
+  private final TransactionRepository repository;
+  private final TransactionMapper mapper;
 
-    @Override
-    @Transactional
-    public Transaction save(Transaction transaction) {
-        log.debug("Saving via Cloud AlloyDB: transactionId={}", transaction.getTransactionId());
-        TransactionEntity entity = mapper.toEntity(transaction);
-        TransactionEntity saved = repository.save(entity);
-        return mapper.toDomain(saved);
-    }
+  @Override
+  @Transactional
+  public Transaction save(Transaction transaction) {
+    log.debug("Saving via Cloud AlloyDB: transactionId={}", transaction.getTransactionId());
+    TransactionEntity entity = mapper.toEntity(transaction);
+    TransactionEntity saved = repository.save(entity);
+    return mapper.toDomain(saved);
+  }
 
-    @Override
-    public Optional<Transaction> findById(String transactionId) {
-        return repository.findById(transactionId).map(mapper::toDomain);
-    }
+  @Override
+  public Optional<Transaction> findById(String transactionId) {
+    return repository.findById(transactionId).map(mapper::toDomain);
+  }
 
-    @Override
-    public String getStoreName() {
-        return "Google Cloud AlloyDB";
-    }
+  @Override
+  public String getStoreName() {
+    return "Google Cloud AlloyDB";
+  }
 }

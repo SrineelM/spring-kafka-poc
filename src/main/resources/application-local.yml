@@ -32,7 +32,7 @@ spring:
   kafka:
     bootstrap-servers: localhost:9092
     producer:
-      transaction-id-prefix: ""
+      transaction-id-prefix: "tx-local-"
     properties:
       schema.registry.url: http://localhost:8081
 

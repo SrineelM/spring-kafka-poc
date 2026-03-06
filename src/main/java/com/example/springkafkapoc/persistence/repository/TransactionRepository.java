@@ -7,17 +7,14 @@ import org.springframework.stereotype.Repository;
 /**
  * <b>Spring Data Repository: Transaction</b>
  *
- * <p>
- * <b>TUTORIAL:</b> Spring Data JPA provides the implementation of this
- * interface at runtime.
+ * <p><b>TUTORIAL:</b> Spring Data JPA provides the implementation of this interface at runtime.
  * What makes this powerful is its <b>Dialect Agnostic</b> nature.
  *
- * <p>
- * The same repository works for:
+ * <p>The same repository works for:
+ *
  * <ul>
- * <li><b>H2:</b> Using standard SQL locally.</li>
- * <li><b>Cloud Spanner:</b> Using Spanner-specific partitioning and indexing in
- * the cloud.</li>
+ *   <li><b>H2:</b> Using standard SQL locally.
+ *   <li><b>Cloud Spanner:</b> Using Spanner-specific partitioning and indexing in the cloud.
  * </ul>
  */
 @Repository
