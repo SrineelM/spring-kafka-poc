@@ -73,10 +73,11 @@ public class AuditService {
   }
 
   public void recordProcessing(String transactionId, String accountId, int partition, long offset) {
+    // Determine if this is a retry attempt (could be enhanced with header checks)
     recordEvent(
         transactionId,
         accountId,
-        AuditEventType.RETRY_ATTEMPTED,
+        AuditEventType.RECEIVED,
         partition,
         offset,
         "Processing started on consumer thread.");

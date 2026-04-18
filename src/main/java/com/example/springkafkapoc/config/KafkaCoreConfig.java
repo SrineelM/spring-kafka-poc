@@ -91,7 +91,12 @@ public class KafkaCoreConfig {
     Map<String, Object> props = commonProducerProps();
     props.put(
         ProducerConfig.PARTITIONER_CLASS_CONFIG, HighValueTransactionPartitioner.class.getName());
-    return new DefaultKafkaProducerFactory<>(props);
+    DefaultKafkaProducerFactory<String, TransactionEvent> factory =
+        new DefaultKafkaProducerFactory<>(props);
+    if (transactionIdPrefix != null && !transactionIdPrefix.isEmpty()) {
+      factory.setTransactionIdPrefix(transactionIdPrefix + "metrics-");
+    }
+    return factory;
   }
 
   private Map<String, Object> commonProducerProps() {
@@ -101,7 +106,7 @@ public class KafkaCoreConfig {
     props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, KafkaAvroSerializer.class);
     props.put("schema.registry.url", schemaRegistryUrl);
     // Ensure exactly-once/idempotent semantics on the producer side
-    props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, "true");
+    props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
     // Guarantee strongest durability; producer returns success only if leader and
     // ISR confirm receipt
     props.put(ProducerConfig.ACKS_CONFIG, "all");
@@ -143,6 +148,7 @@ public class KafkaCoreConfig {
         "io.confluent.kafka.serializers.KafkaAvroDeserializer");
     props.put("schema.registry.url", schemaRegistryUrl);
     props.put("specific.avro.reader", "true");
+    props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 500); // Align with YAML default
     return new DefaultKafkaConsumerFactory<>(props);
   }
 
@@ -189,12 +195,8 @@ public class KafkaCoreConfig {
 
   @Bean
   public ProducerFactory<String, TransactionEvent> replyProducerFactory() {
-    DefaultKafkaProducerFactory<String, TransactionEvent> factory =
-        new DefaultKafkaProducerFactory<>(commonProducerProps());
-    if (transactionIdPrefix != null && !transactionIdPrefix.isEmpty()) {
-      factory.setTransactionIdPrefix(transactionIdPrefix);
-    }
-    return factory;
+    // Request-reply doesn't need transactions; remove prefix to avoid fencing.
+    return new DefaultKafkaProducerFactory<>(commonProducerProps());
   }
 
   @Bean
@@ -271,8 +273,9 @@ public class KafkaCoreConfig {
             (r, e) ->
                 new org.apache.kafka.common.TopicPartition(r.topic() + ".DLT", r.partition()));
 
-    ExponentialBackOff backOff = new ExponentialBackOff(1000L, 2.0);
-    backOff.setMaxElapsedTime(10000L);
+    ExponentialBackOff backOff = new ExponentialBackOff(2000L, 2.0);
+    backOff.setMaxElapsedTime(60000L); // 60s total window to survive DB re-boots
+    backOff.setMaxInterval(20000L); // Cap single delay at 20s
 
     DefaultErrorHandler handler = new DefaultErrorHandler(recoverer, backOff);
     handler.setLogLevel(org.springframework.kafka.KafkaException.Level.WARN);

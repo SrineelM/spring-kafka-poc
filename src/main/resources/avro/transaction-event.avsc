@@ -34,6 +34,12 @@
       "type": ["null", "string"],
       "default": null,
       "doc": "Marker representing the state of the transaction. E.g INITIAL, PROCESSED, FAILED"
+    },
+    {
+      "name": "schemaVersion",
+      "type": ["string", "null"],
+      "default": "v1",
+      "doc": "Schema version tag for consumer-side compatibility checks."
     }
   ]
 }

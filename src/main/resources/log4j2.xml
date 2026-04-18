@@ -1,27 +1,36 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Configuration status="WARN">
     <Properties>
-        <!-- Log pattern includes %X{traceId} and %X{spanId} injected by Micrometer Tracing/OTel -->
-        <!-- This allows for perfect GCP Cloud Logging correlation -->
-        <Property name="LOG_PATTERN">%d{yyyy-MM-dd HH:mm:ss.SSS} [%15.15t] %-5level %logger{36} [traceId=%X{traceId}, spanId=%X{spanId}] - %msg%n</Property>
+        <!-- Log pattern includes:
+             %d: High precision ISO8601 timestamp (nano-seconds)
+             %sn: Global Sequence Number for out-of-order log reconstruction
+             %X: Mapped Diagnostic Context (traceId, spanId) for distributed tracing
+             %t: Thread name
+        -->
+        <Property name="LOG_PATTERN">%d{yyyy-MM-dd'T'HH:mm:ss.SSSSSSSSSXXX} [%15.15t] %-5level %logger{36} [seq=%sn, traceId=%X{traceId}, spanId=%X{spanId}] - %msg%n</Property>
     </Properties>
 
     <Appenders>
-        <!-- Standard Console Appender -->
+        <!-- Standard Console Appender with Immediate Flush disabled for performance (handled by async) -->
         <Console name="Console" target="SYSTEM_OUT">
             <PatternLayout pattern="${LOG_PATTERN}"/>
         </Console>
     </Appenders>
 
     <Loggers>
-        <!-- Tune Spring Kafka Logging down to avoid unnecessary IO overhead, keep INFO for broker connectivity -->
+        <!-- Tune Spring Kafka Logging down to avoid unnecessary IO overhead -->
         <AsyncLogger name="org.springframework.kafka" level="INFO" includeLocation="false"/>
         <AsyncLogger name="org.apache.kafka" level="WARN" includeLocation="false"/>
         
         <!-- Our application specific logger -->
         <AsyncLogger name="com.example.springkafkapoc" level="DEBUG" includeLocation="false"/>
 
-        <!-- Making the Root logger asynchronous for performance (requires LMAX Disruptor) -->
+        <!-- 
+             ASYNC CONFIGURATION:
+             Using AsyncRoot/AsyncLogger with LMAX Disruptor.
+             To ensure maximum performance AND strict arrival ordering in the Disruptor, 
+             the System Property 'Log4jContextSelector' is set in SpringKafkaPocApplication.
+        -->
         <AsyncRoot level="INFO" includeLocation="false">
             <AppenderRef ref="Console"/>
         </AsyncRoot>

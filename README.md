@@ -13,6 +13,7 @@ This project has been refactored to adhere to strict **Hexagonal Architecture** 
 *   **🔗 Observability:** Full-lifecycle tracing using **Correlation IDs** that propagate from HTTP Request Headers through to Kafka Headers and deep into Consumer threads.
 *   **🛡️ Resilience:** **Exactly-Once Semantics (EOS)**, **Idempotent Producers**, **Circuit Breakers** on sinks, and **Exponential Backoff** retries with **DLT** support.
 *   **🕋 Persistence Agnostic:** Swaps between **Cloud Spanner**, **AlloyDB**, and **H2** (local fallback) using a **Dynamic Persistence Router**.
+*   **⚡ High-Performance Logging:** Fully asynchronous logging via **Log4j2 & LMAX Disruptor** with guaranteed arrival ordering and **Global Sequence Numbering** for out-of-order log reconstruction.
 
 ---
 
@@ -60,6 +61,42 @@ This project has been refactored to adhere to strict **Hexagonal Architecture** 
 *   **Serialization:** Apache Avro (Strict Schema Enforcement)
 *   **Resilience:** Resilience4j & Spring Kafka `@RetryableTopic`
 *   **Observability:** Micrometer Observation API & SLF4J MDC Tracing
+
+---
+
+## 🛠️ Environment Variables & Configuration
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `SPRING_PROFILES_ACTIVE` | No | `local` | Active Spring profile |
+| `SPRING_KAFKA_BOOTSTRAP_SERVERS` | Yes (prod) | `localhost:9092` | Kafka broker locations |
+| `SCHEMA_REGISTRY_URL` | Yes (prod) | `http://localhost:8081` | Confluent Schema Registry |
+| `JAVA_OPTS` | No | — | Custom JVM arguments |
+
+## 🧪 Testing Strategy
+
+```bash
+# Unit tests
+./mvnw test
+
+# Integration tests (Embedded Kafka)
+./mvnw verify
+
+# Code formatting (Spotless/Google Java Format)
+./mvnw spotless:apply
+```
+
+## 🗺️ Data Flow Map
+
+1. **[HTTP POST]** → `IngestionController`
+2. **[PRODUCE]** → `raw-transactions-topic` (TransactionId Key)
+3. **[LISTEN]** → `TransactionEventSingleProcessor`
+4. **[DB WRITE]** → Transaction Entity + Outbox Record (Atomic)
+5. **[POLL]** → `OutboxPublisherService` (Bounded, Locked)
+6. **[PRODUCE]** → `processed-transactions-topic`
+7. **[STREAM]** → `AnalyticsTopology` (Join + Aggregate)
+8. **[Materialize]** → `daily-account-aggregates-store`
+9. **[SINK]** → `BigQuerySinkService` (Resilient Circuit Breaker)
 
 ---
 

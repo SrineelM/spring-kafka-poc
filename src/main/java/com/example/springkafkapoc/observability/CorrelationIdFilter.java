@@ -3,7 +3,6 @@ package com.example.springkafkapoc.observability;
 import jakarta.servlet.*;
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
-import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -39,7 +38,7 @@ public class CorrelationIdFilter implements Filter {
 
       // 2. Generate new if missing
       if (correlationId == null || correlationId.isBlank()) {
-        correlationId = UUID.randomUUID().toString();
+        correlationId = com.github.f4b6a3.uuid.UuidCreator.getTimeOrderedEpoch().toString();
       }
 
       // 3. Set in ThreadLocal & MDC for logging and downstream use

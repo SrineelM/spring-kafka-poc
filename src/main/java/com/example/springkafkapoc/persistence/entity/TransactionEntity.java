@@ -1,9 +1,6 @@
 package com.example.springkafkapoc.persistence.entity;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.Instant;
 import lombok.AllArgsConstructor;
@@ -23,7 +20,9 @@ import lombok.NoArgsConstructor;
  * validation is bypassed.
  */
 @Entity
-@Table(name = "Transactions")
+@Table(
+    name = "Transactions",
+    uniqueConstraints = {@UniqueConstraint(columnNames = {"transaction_id"})})
 @Data
 @Builder
 @NoArgsConstructor

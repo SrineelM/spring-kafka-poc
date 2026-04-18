@@ -172,12 +172,30 @@ ENTRYPOINT ["java", "-Xms2g", "-Xmx2g", "-XX:+UseG1GC", "-jar", "/app.jar"]
 
 ---
 
-## 5. Monitoring & Alerting
+---
 
-Key metrics to monitor:
+## 6. Async Logging & Observability
 
-- **`kafka_consumer_lag`**: The most critical consumer health metric. Alert if lag grows consistently.
-- **`kafka_dlt_messages_sent` (Custom Metric)**: Number of messages sent to the DLT. Any activity on this metric requires immediate investigation.
-- **`resilience4j_circuitbreaker_state`**: Monitor the state of the `databaseCircuitBreaker`. An `OPEN` state indicates a problem with the primary database.
-- **`spring_integration_lock_acquired`**: Monitor the outbox lock acquisition rate. If no instance can acquire the lock, the outbox will not be processed.
-- **JVM Heap & GC Pause Duration**: Standard JVM monitoring to detect memory leaks or long GC pauses.
+The application uses **Log4j2 with LMAX Disruptor** for high-performance asynchronous logging. This ensures that logging operations do not block the main processing threads (Kafka consumers/producers).
+
+### Configuration
+- **Context Selector**: The `Log4jContextSelector` is set to `AsyncLoggerContextSelector` in `SpringKafkaPocApplication.java`.
+- **Buffer Size**: Default Disruptor ring buffer size is used (adjustable via `-Dlog4j2.asyncLoggerRingBufferSize`).
+- **Wait Strategy**: Uses a non-blocking wait strategy by default for maximum throughput.
+
+### Handling Out-of-Order Logs
+In high-throughput environments, multiple threads may produce logs almost simultaneously. While the Disruptor preserves the arrival order, some log aggregators (like GCP Cloud Logging) or log viewers might display them out of order due to timestamp collisions.
+
+To solve this, the application includes a **Global Sequence Number (`seq=%sn`)** in every log line.
+
+**How to reconstruct the correct order:**
+1.  **Sort by `timestamp`**: First level of sorting.
+2.  **Sort by `seq`**: If timestamps are identical, the sequence number guaranteed by Log4j2 before entering the async queue defines the absolute order.
+
+**Log Pattern:**
+```
+%d{ISO8601} [%t] %level %logger [seq=%sn, traceId=%X, spanId=%X] - %msg
+```
+
+### Distributed Tracing
+`traceId` and `spanId` are automatically injected into the MDC by Micrometer Tracing. These are included in the log pattern to allow correlation across service boundaries and with GCP Cloud Trace.

@@ -3,10 +3,13 @@ package com.example.springkafkapoc.service;
 import com.example.springkafkapoc.domain.model.Outbox;
 import com.example.springkafkapoc.persistence.mapper.OutboxMapper;
 import com.example.springkafkapoc.persistence.repository.OutboxRepository;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,6 +33,7 @@ public class OutboxService {
 
   private final OutboxRepository outboxRepository;
   private final OutboxMapper mapper;
+  private final ObjectMapper objectMapper;
 
   /**
    * Saves a message to the Outbox.
@@ -46,39 +50,44 @@ public class OutboxService {
     log.debug("Outbox record created for aggregateId={}", outbox.getAggregateId());
   }
 
-  /** Legacy helper for simpler calls where you don't want to build the model manually. */
+  /**
+   * Helper to build and save a message to the Outbox.
+   *
+   * @param aggregateId the business ID
+   * @param payload the object to be serialized to JSON
+   * @param topic the destination topic
+   */
   @Transactional
   public void saveToOutbox(String aggregateId, Object payload, String topic) {
-    save(
-        Outbox.builder()
-            .aggregateId(aggregateId)
-            .aggregateType("Transaction")
-            .payload(payload.toString())
-            .destinationTopic(topic)
-            .build());
+    try {
+      String jsonPayload = objectMapper.writeValueAsString(payload);
+      save(
+          Outbox.builder()
+              .aggregateId(aggregateId)
+              .aggregateType("Transaction")
+              .payload(jsonPayload)
+              .destinationTopic(topic)
+              .build());
+    } catch (JsonProcessingException e) {
+      log.error("Failed to serialize outbox payload for ID: {}", aggregateId, e);
+      throw new RuntimeException("Outbox serialization failure", e);
+    }
   }
 
-  /**
-   * Finds unprocessed messages. (Note: Real implementation would have a 'findByProcessedFalse'
-   * repository method)
-   */
+  /** Finds unprocessed messages in batches to prevent OOM errors. */
+  @Transactional(readOnly = true)
   public List<Outbox> findUnprocessedMessages() {
-    // Simple mock implementation as the repository doesn't have the method yet
-    return outboxRepository.findAll().stream()
-        .filter(e -> !e.isProcessed())
+    return outboxRepository.findUnprocessedLocked(PageRequest.of(0, 100)).stream()
         .map(mapper::toDomain)
         .toList();
   }
 
-  /** Marks a message as processed. */
+  /** Marks a message as processed atomically. */
   @Transactional
   public void markAsProcessed(Long id) {
-    outboxRepository
-        .findById(id)
-        .ifPresent(
-            entity -> {
-              entity.setProcessed(true);
-              outboxRepository.save(entity);
-            });
+    int rows = outboxRepository.markProcessed(id);
+    if (rows == 0) {
+      log.warn("Outbox record {} was already processed or does not exist.", id);
+    }
   }
 }

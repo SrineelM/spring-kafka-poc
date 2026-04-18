@@ -140,8 +140,8 @@ app:
 # -------------------------------------------------------------------------
 logging:
   pattern:
-    # Adds MDC context variables (traceId, spanId, correlationId) to every log line
-    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - [traceId=%X{traceId}, spanId=%X{spanId}, correlationId=%X{correlationId}] - %msg%n"
+    # Synchronized with log4j2.xml for consistency across environments
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSSSSSSSXXX} [%thread] %-5level %logger{36} - [seq=%sn, traceId=%X{traceId}, spanId=%X{spanId}, correlationId=%X{correlationId}] - %msg%n"
   level:
     root: INFO
     org.springframework.kafka: INFO

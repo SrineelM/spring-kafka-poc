@@ -4,6 +4,7 @@ import com.example.springkafkapoc.avro.TransactionEvent;
 import com.example.springkafkapoc.config.TopicConstants;
 import com.example.springkafkapoc.domain.model.Outbox;
 import com.example.springkafkapoc.domain.model.Transaction;
+import com.example.springkafkapoc.observability.CorrelationIdContext;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.Counter;
@@ -13,14 +14,17 @@ import java.time.Instant;
 import java.util.concurrent.atomic.AtomicLong;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.common.errors.SerializationException;
 import org.springframework.context.annotation.Profile;
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.kafka.annotation.DltHandler;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.annotation.RetryableTopic;
 import org.springframework.kafka.retrytopic.TopicSuffixingStrategy;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.kafka.support.KafkaHeaders;
+import org.springframework.kafka.support.serializer.DeserializationException;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.retry.annotation.Backoff;
 import org.springframework.stereotype.Service;
@@ -95,7 +99,13 @@ public class TransactionEventSingleProcessor {
       attempts = "3",
       backoff = @Backoff(delay = 1000, multiplier = 2.0),
       topicSuffixingStrategy = TopicSuffixingStrategy.SUFFIX_WITH_INDEX_VALUE,
-      exclude = {DataAccessException.class})
+      exclude = {
+        DataAccessException.class,
+        DeserializationException.class,
+        SerializationException.class,
+        NullPointerException.class,
+        IllegalArgumentException.class
+      })
   @KafkaListener(
       topics = TopicConstants.RAW_TRANSACTIONS,
       groupId = "transaction-processor-group",
@@ -104,89 +114,100 @@ public class TransactionEventSingleProcessor {
       ConsumerRecord<String, TransactionEvent> record, Acknowledgment ack) {
     backlogSize.incrementAndGet();
 
-    processingTimer.record(
-        () -> {
-          TransactionEvent event = record.value();
-          String transactionId = event.getTransactionId().toString();
-          String accountId = event.getAccountId().toString();
+    try {
+      processingTimer.record(
+          () -> {
+            TransactionEvent event = record.value();
+            String transactionId = event.getTransactionId().toString();
+            String accountId = event.getAccountId().toString();
+            String correlationId = CorrelationIdContext.getCorrelationId();
 
-          log.info(
-              "Processing transactionId={} partition={} offset={}",
-              transactionId,
-              record.partition(),
-              record.offset());
+            log.info(
+                "Processing transactionId={} partition={} offset={}",
+                transactionId,
+                record.partition(),
+                record.offset());
 
-          new TransactionTemplate(transactionManager)
-              .executeWithoutResult(
-                  status -> {
-                    // 1. Audit processing start
-                    auditService.recordProcessing(
-                        transactionId, accountId, record.partition(), record.offset());
+            try {
+              new TransactionTemplate(transactionManager)
+                  .executeWithoutResult(
+                      status -> {
+                        // Restore correlation context for the transaction block
+                        CorrelationIdContext.setCorrelationId(correlationId);
 
-                    // 2. Persist
-                    // TUTORIAL: We save the core business entity.
-                    Transaction transaction =
-                        Transaction.builder()
-                            .transactionId(transactionId)
-                            .accountId(accountId)
-                            .amount(event.getAmount())
-                            .timestamp(Instant.ofEpochMilli(event.getTimestamp()))
-                            .status("PROCESSED")
-                            .processedBy("PROCESSOR-SINGLE")
-                            .sourcePartition(record.partition())
-                            .sourceOffset(record.offset())
-                            .build();
+                        // 1. Audit processing start
+                        auditService.recordProcessing(
+                            transactionId, accountId, record.partition(), record.offset());
 
-                    transactionPersistencePort.save(transaction);
+                        // 2. Persist
+                        Transaction transaction =
+                            Transaction.builder()
+                                .transactionId(transactionId)
+                                .accountId(accountId)
+                                .amount(event.getAmount())
+                                .timestamp(Instant.ofEpochMilli(event.getTimestamp()))
+                                .status("PROCESSED")
+                                .processedBy("PROCESSOR-SINGLE")
+                                .sourcePartition(record.partition())
+                                .sourceOffset(record.offset())
+                                .build();
 
-                    // 3. Outbox
-                    // TUTORIAL: Instead of pushing to a new Kafka topic immediately, we save an
-                    // 'Outbox' record
-                    // to the SAME database transaction. This prevents dual-write failures (e.g. DB
-                    // commit succeeds,
-                    // but Kafka networking fails, causing data inconsistency).
-                    try {
-                      Outbox outbox =
-                          Outbox.builder()
-                              .aggregateType("Transaction")
-                              .aggregateId(transactionId)
-                              .destinationTopic(TopicConstants.PROCESSED_TRANSACTIONS)
-                              .payload(objectMapper.writeValueAsString(event))
-                              .createdAt(Instant.now())
-                              .processed(false)
-                              .build();
-                      outboxService.save(outbox);
-                    } catch (JsonProcessingException e) {
-                      throw new RuntimeException("Serialization failure", e);
-                    }
+                        transactionPersistencePort.save(transaction);
 
-                    // 4. Audit success
-                    auditService.recordSuccess(
-                        transactionId, accountId, transactionPersistencePort.getStoreName());
-                  });
+                        // 3. Outbox
+                        try {
+                          Outbox outbox =
+                              Outbox.builder()
+                                  .aggregateType("Transaction")
+                                  .aggregateId(transactionId)
+                                  .destinationTopic(TopicConstants.PROCESSED_TRANSACTIONS)
+                                  .payload(objectMapper.writeValueAsString(event))
+                                  .createdAt(Instant.now())
+                                  .processed(false)
+                                  .build();
+                          outboxService.save(outbox);
+                        } catch (JsonProcessingException e) {
+                          throw new RuntimeException("Serialization failure", e);
+                        }
 
-          // TUTORIAL: We manually acknowledge the Kafka message only AFTER the database
-          // transaction fully commits.
-          // If the application crashes before this line, Kafka will re-deliver the
-          // message to another instance.
-          ack.acknowledge();
-          backlogSize.decrementAndGet();
-        });
+                        // 4. Audit success
+                        auditService.recordSuccess(
+                            transactionId, accountId, transactionPersistencePort.getStoreName());
+                      });
+            } catch (DataIntegrityViolationException e) {
+              log.warn(
+                  "Duplicate detection: transactionId={} already exists. Skipping.", transactionId);
+            }
+
+            // 5. Acknowledge
+            ack.acknowledge();
+          });
+    } finally {
+      backlogSize.decrementAndGet();
+    }
   }
 
   @DltHandler
   public void dlt(
       ConsumerRecord<String, TransactionEvent> record,
-      @Header(KafkaHeaders.EXCEPTION_MESSAGE) String exceptionMessage) {
+      @Header(KafkaHeaders.EXCEPTION_MESSAGE) String exceptionMessage,
+      Acknowledgment ack) {
 
     log.error("Sent to DLT: {}. Reason: {}", record.value(), exceptionMessage);
     dlqCounter.increment();
 
-    auditService.recordDlq(
-        record.key(),
-        record.value().getAccountId().toString(),
-        record.partition(),
-        record.offset(),
-        exceptionMessage);
+    try {
+      auditService.recordDlq(
+          record.key(),
+          record.value().getAccountId().toString(),
+          record.partition(),
+          record.offset(),
+          exceptionMessage);
+    } catch (Exception e) {
+      log.error("Failed to record DLT audit entry: {}", e.getMessage());
+    } finally {
+      // Must acknowledge at DLT level to prevent infinite retry loops
+      ack.acknowledge();
+    }
   }
 }

@@ -48,7 +48,8 @@ import org.springframework.test.context.ActiveProfiles;
     brokerProperties = {
       "transaction.state.log.replication.factor=1",
       "transaction.state.log.min.isr=1",
-      "offsets.topic.replication.factor=1"
+      "offsets.topic.replication.factor=1",
+      "schema.registry.url=mock://integration-test-registry"
     })
 @DirtiesContext
 class KafkaPipelineIntegrationTest {
@@ -58,8 +59,13 @@ class KafkaPipelineIntegrationTest {
    * "catch" messages as they arrive in our test listener. This allows our main test thread to wait
    * (block) until the message is received or a timeout occurs.
    */
-  private static final BlockingQueue<ConsumerRecord<String, Object>> RECEIVED =
+  private static final LinkedBlockingQueue<ConsumerRecord<String, Object>> RECEIVED =
       new LinkedBlockingQueue<>();
+
+  @org.junit.jupiter.api.BeforeEach
+  void resetQueue() {
+    RECEIVED.clear();
+  }
 
   @Autowired private DataIngestionService dataIngestionService;
 
