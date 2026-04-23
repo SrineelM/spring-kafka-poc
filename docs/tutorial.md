@@ -9,20 +9,23 @@ Welcome, esteemed developer, to this masterclass on **Spring Kafka Architecture*
 Our system is built on **Hexagonal Architecture** (Ports and Adapters) to ensure we can swap storage backends without rewriting business logic. This separation of concerns is paramount for maintaining a clean and testable codebase.
 
 ```mermaid
-subgraph "The Analytics Engine (Modular KStreams)"
-    C -->|Stream| H1(SourceTopology: Dedupe + Filter)
-    H1 -->|Keyed Stream| H2(FraudTopology: Join)
-    H1 -->|Keyed Stream| H3(RoutingTopology: Branch)
-    H1 -->|Grouped Stream| H4(BalanceTopology: Agg)
-    H1 -->|Grouped Stream| H5(MetricsTopology: Windows)
-    H1 -->|Grouped Stream| H6(SessionTopology: Suppress)
+graph TD
+    C[Topic: processed-transactions]
+    
+    subgraph "The Analytics Engine (Modular KStreams)"
+    C -->|Stream| H1("SourceTopology: Dedupe + Filter")
+    H1 -->|"Keyed Stream"| H2("FraudTopology: Join")
+    H1 -->|"Keyed Stream"| H3("RoutingTopology: Branch")
+    H1 -->|"Grouped Stream"| H4("BalanceTopology: Agg")
+    H1 -->|"Grouped Stream"| H5("MetricsTopology: Windows")
+    H1 -->|"Grouped Stream"| H6("SessionTopology: Suppress")
     end
     
     subgraph "Resilient Sinks"
     H4 -->|Push| L{Kafka: balances}
-    L -->|Consume| M(BigQuery Sink Service)
+    L -->|Consume| M("BigQuery Sink Service")
     M -->|Write| N[[Google BigQuery]]
-    M -.->|If Fail: Pause| L
+    M -.->|"If Fail: Pause"| L
     end
 ```
 
