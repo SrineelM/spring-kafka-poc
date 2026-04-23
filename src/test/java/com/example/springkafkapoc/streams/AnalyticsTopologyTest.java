@@ -6,6 +6,8 @@ import com.example.springkafkapoc.avro.TransactionEvent;
 import com.example.springkafkapoc.config.TopicConstants;
 import com.example.springkafkapoc.streams.topology.*;
 import io.confluent.kafka.streams.serdes.avro.SpecificAvroSerde;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Properties;
@@ -26,17 +28,19 @@ class AnalyticsTopologyTest {
   private TestInputTopic<String, String> accountTableTopic;
   private SpecificAvroSerde<TransactionEvent> avroSerde;
   private SerdeConfig serdeConfig;
+  private MeterRegistry meterRegistry;
 
   @BeforeEach
   void setup() {
     KafkaProperties kafkaProperties = new KafkaProperties();
     kafkaProperties.getProperties().put("schema.registry.url", "mock://schema-registry");
     serdeConfig = new SerdeConfig(kafkaProperties);
+    meterRegistry = new SimpleMeterRegistry();
 
     StreamsBuilder builder = new StreamsBuilder();
 
     // Wire Modular Topologies manually for the test
-    SourceTopology sourceTopology = new SourceTopology(serdeConfig);
+    SourceTopology sourceTopology = new SourceTopology(serdeConfig, meterRegistry);
     BalanceTopology balanceTopology = new BalanceTopology(serdeConfig);
     MetricsTopology metricsTopology = new MetricsTopology(serdeConfig);
 

@@ -5,11 +5,12 @@ import com.example.springkafkapoc.config.TopicConstants;
 import com.example.springkafkapoc.streams.DeduplicationProcessor;
 import com.example.springkafkapoc.streams.SerdeConfig;
 import com.example.springkafkapoc.streams.StoreConstants;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.math.BigDecimal;
 import java.time.Duration;
 import lombok.Builder;
 import lombok.Data;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.streams.StreamsBuilder;
@@ -19,6 +20,7 @@ import org.apache.kafka.streams.kstream.KGroupedStream;
 import org.apache.kafka.streams.kstream.KStream;
 import org.apache.kafka.streams.kstream.Materialized;
 import org.apache.kafka.streams.state.Stores;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -39,7 +41,6 @@ import org.springframework.stereotype.Component;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class SourceTopology {
 
   /** Minimum amount to process; smaller amounts are considered noise/auth-checks. */
@@ -49,6 +50,25 @@ public class SourceTopology {
   private static final Duration DEDUPLICATION_TTL = Duration.ofHours(24);
 
   private final SerdeConfig serdeConfig;
+  private final MeterRegistry meterRegistry;
+
+  private final Counter malformedCounter;
+  private final Counter smallAmountCounter;
+
+  @Autowired
+  public SourceTopology(SerdeConfig serdeConfig, MeterRegistry meterRegistry) {
+    this.serdeConfig = serdeConfig;
+    this.meterRegistry = meterRegistry;
+
+    this.malformedCounter =
+        Counter.builder("streams.source.malformed.count")
+            .description("Number of malformed records dropped at the source")
+            .register(meterRegistry);
+    this.smallAmountCounter =
+        Counter.builder("streams.source.small_amount.count")
+            .description("Number of transactions dropped because the amount was too small")
+            .register(meterRegistry);
+  }
 
   /**
    * <b>Source Context Pattern</b>
@@ -96,8 +116,11 @@ public class SourceTopology {
                           && v.getTransactionId() != null
                           && v.getAccountId() != null
                           && v.getAmount() != null;
-                  if (!valid && log.isWarnEnabled()) {
-                    log.warn("Dropping malformed record: key={}", k);
+                  if (!valid) {
+                    malformedCounter.increment();
+                    if (log.isWarnEnabled()) {
+                      log.warn("Dropping malformed record: key={}", k);
+                    }
                   }
                   return valid;
                 })
@@ -107,15 +130,19 @@ public class SourceTopology {
                     new DeduplicationProcessor<>(
                         StoreConstants.TRANSACTION_DEDUPLICATION_STORE,
                         event -> event.getTransactionId().toString(),
-                        DEDUPLICATION_TTL),
+                        DEDUPLICATION_TTL,
+                        meterRegistry),
                 StoreConstants.TRANSACTION_DEDUPLICATION_STORE)
             // 3. Minimum amount filter
             .filter(
                 (id, event) -> {
                   boolean valid = event.getAmount().compareTo(MINIMUM_VALID_AMOUNT) >= 0;
-                  if (!valid && log.isDebugEnabled()) {
-                    log.debug(
-                        "Dropping small transaction: id={}, amount={}", id, event.getAmount());
+                  if (!valid) {
+                    smallAmountCounter.increment();
+                    if (log.isDebugEnabled()) {
+                      log.debug(
+                          "Dropping small transaction: id={}, amount={}", id, event.getAmount());
+                    }
                   }
                   return valid;
                 })

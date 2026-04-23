@@ -1,5 +1,7 @@
 package com.example.springkafkapoc.streams;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.streams.processor.api.ContextualProcessor;
@@ -25,12 +27,29 @@ public class DeduplicationProcessor<K, V, ID> extends ContextualProcessor<K, V, 
   private final String storeName;
   private final IdExtractor<V, ID> idExtractor;
   private final Duration ttl;
+  private final MeterRegistry meterRegistry;
   private KeyValueStore<ID, Long> store;
 
-  public DeduplicationProcessor(String storeName, IdExtractor<V, ID> idExtractor, Duration ttl) {
+  private final Counter duplicateCounter;
+  private final Counter recordCounter;
+
+  public DeduplicationProcessor(
+      String storeName, IdExtractor<V, ID> idExtractor, Duration ttl, MeterRegistry meterRegistry) {
     this.storeName = storeName;
     this.idExtractor = idExtractor;
     this.ttl = ttl;
+    this.meterRegistry = meterRegistry;
+
+    this.duplicateCounter =
+        Counter.builder("streams.deduplication.duplicates.count")
+            .description("Number of duplicate records detected and dropped by the stream processor")
+            .tag("store", storeName)
+            .register(meterRegistry);
+    this.recordCounter =
+        Counter.builder("streams.deduplication.records.count")
+            .description("Total number of records processed by the deduplication engine")
+            .tag("store", storeName)
+            .register(meterRegistry);
   }
 
   @Override
@@ -67,8 +86,11 @@ public class DeduplicationProcessor<K, V, ID> extends ContextualProcessor<K, V, 
     }
 
     Long seenAt = store.get(id);
+    recordCounter.increment();
+
     if (seenAt != null) {
       log.debug("Duplicate detected in Streams: id={}. Dropping record.", id);
+      duplicateCounter.increment();
       return;
     }
 

@@ -1,6 +1,9 @@
 package com.example.springkafkapoc.controller;
 
 import com.example.springkafkapoc.service.DataIngestionService;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -8,8 +11,9 @@ import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.util.concurrent.CompletableFuture;
-import lombok.RequiredArgsConstructor;
+import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -30,10 +34,34 @@ import org.springframework.web.bind.annotation.*;
 @Slf4j
 @RestController
 @RequestMapping("/api/v1/transactions")
-@RequiredArgsConstructor
 public class IngestionController {
 
   private final DataIngestionService ingestionService;
+  private final MeterRegistry meterRegistry;
+
+  private final Timer ingestionTimer;
+  private final Counter totalVolumeCounter;
+  private final Counter errorCounter;
+
+  @Autowired
+  public IngestionController(DataIngestionService ingestionService, MeterRegistry meterRegistry) {
+    this.ingestionService = ingestionService;
+    this.meterRegistry = meterRegistry;
+
+    this.ingestionTimer =
+        Timer.builder("ingestion.latency")
+            .description("Time taken for the ingestion REST call to complete")
+            .register(meterRegistry);
+    this.totalVolumeCounter =
+        Counter.builder("ingestion.volume.total")
+            .description("Total dollar volume ingested via REST")
+            .baseUnit("USD")
+            .register(meterRegistry);
+    this.errorCounter =
+        Counter.builder("ingestion.error.count")
+            .description("Number of failed ingestion requests")
+            .register(meterRegistry);
+  }
 
   /**
    * Inbound payload. Using a Java {@code record} gives us immutability and a compact canonical
@@ -59,6 +87,7 @@ public class IngestionController {
   @PostMapping
   public CompletableFuture<ResponseEntity<String>> ingest(
       @Valid @RequestBody IngestionRequest request) {
+    long startTime = System.nanoTime();
     log.debug(
         "Received ingestion request for accountId={}, amount={}",
         request.accountId(),
@@ -67,11 +96,16 @@ public class IngestionController {
     return ingestionService
         .ingestTransaction(request.amount(), request.accountId())
         .thenApply(
-            result ->
-                ResponseEntity.accepted()
-                    .body("Transaction accepted: " + result.getProducerRecord().key()))
+            result -> {
+              ingestionTimer.record(System.nanoTime() - startTime, TimeUnit.NANOSECONDS);
+              totalVolumeCounter.increment(request.amount().doubleValue());
+              return ResponseEntity.accepted()
+                  .body("Transaction accepted: " + result.getProducerRecord().key());
+            })
         .exceptionally(
             ex -> {
+              ingestionTimer.record(System.nanoTime() - startTime, TimeUnit.NANOSECONDS);
+              errorCounter.increment();
               log.error(
                   "Failed to ingest transaction for accountId={}: {}",
                   request.accountId(),

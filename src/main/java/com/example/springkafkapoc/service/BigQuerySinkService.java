@@ -2,9 +2,14 @@ package com.example.springkafkapoc.service;
 
 import com.example.springkafkapoc.config.TopicConstants;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import java.math.BigDecimal;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
 import org.springframework.messaging.handler.annotation.Payload;
@@ -41,10 +46,39 @@ public class BigQuerySinkService {
   private static final String LISTENER_ID = "bigquery-sink-listener";
 
   private final KafkaListenerEndpointRegistry registry;
+  private final MeterRegistry meterRegistry;
   private final AtomicBoolean paused = new AtomicBoolean(false);
 
-  public BigQuerySinkService(KafkaListenerEndpointRegistry registry) {
+  private final Timer sinkTimer;
+  private final Counter successCounter;
+  private final Counter errorCounter;
+  private final Counter totalVolumeCounter;
+  private final AtomicLong pausedGauge = new AtomicLong(0);
+
+  @Autowired
+  public BigQuerySinkService(KafkaListenerEndpointRegistry registry, MeterRegistry meterRegistry) {
     this.registry = registry;
+    this.meterRegistry = meterRegistry;
+
+    this.sinkTimer =
+        Timer.builder("bigquery.sink.time")
+            .description("Time taken to write a record to BigQuery")
+            .register(meterRegistry);
+    this.successCounter =
+        Counter.builder("bigquery.sink.success.count")
+            .description("Number of successful writes to BigQuery")
+            .register(meterRegistry);
+    this.errorCounter =
+        Counter.builder("bigquery.sink.error.count")
+            .description("Number of failed writes to BigQuery")
+            .register(meterRegistry);
+    this.totalVolumeCounter =
+        Counter.builder("bigquery.sink.volume.total")
+            .description("Total dollar volume successfully written to BigQuery")
+            .baseUnit("USD")
+            .register(meterRegistry);
+
+    meterRegistry.gauge("bigquery.sink.paused", pausedGauge);
   }
 
   /**
@@ -61,20 +95,26 @@ public class BigQuerySinkService {
       properties = {"value.deserializer=org.apache.kafka.common.serialization.StringDeserializer"})
   @CircuitBreaker(name = "bigQueryCircuitBreaker", fallbackMethod = "fallbackSink")
   public void sinkToBigQuery(@Payload String rawTotalAmount) {
-    BigDecimal totalAmount = new BigDecimal(rawTotalAmount);
-    log.info("Received aggregate metric: {}. Writing to BigQuery...", totalAmount);
+    sinkTimer.record(
+        () -> {
+          BigDecimal totalAmount = new BigDecimal(rawTotalAmount);
+          log.info("Received aggregate metric: {}. Writing to BigQuery...", totalAmount);
 
-    // --- Simulated Sink Operations ---
-    if (Math.random() > 0.90) { // 10% simulated failure
-      throw new RuntimeException("BigQuery API Timeout");
-    }
+          // --- Simulated Sink Operations ---
+          if (Math.random() > 0.90) { // 10% simulated failure
+            errorCounter.increment();
+            throw new RuntimeException("BigQuery API Timeout");
+          }
 
-    // If we previously paused the consumer and it's working now, resume it.
-    if (paused.compareAndSet(true, false)) {
-      resumeConsumer();
-    }
+          // If we previously paused the consumer and it's working now, resume it.
+          if (paused.compareAndSet(true, false)) {
+            resumeConsumer();
+          }
 
-    log.info("Successfully flushed metric ({}) to BigQuery.", totalAmount);
+          successCounter.increment();
+          totalVolumeCounter.increment(totalAmount.doubleValue());
+          log.info("Successfully flushed metric ({}) to BigQuery.", totalAmount);
+        });
   }
 
   /**
@@ -89,8 +129,10 @@ public class BigQuerySinkService {
         "BigQuery sink unavailable. Pausing listener. Metric={}, cause={}",
         rawTotalAmount,
         ex.getMessage());
+    errorCounter.increment();
 
     if (paused.compareAndSet(false, true)) {
+      pausedGauge.set(1);
       var container = registry.getListenerContainer(LISTENER_ID);
       if (container != null && container.isRunning()) {
         container.pause();
@@ -125,6 +167,7 @@ public class BigQuerySinkService {
     var container = registry.getListenerContainer(LISTENER_ID);
     if (container != null && container.isRunning()) {
       container.resume();
+      pausedGauge.set(0);
       log.info("Kafka listener '{}' resumed.", LISTENER_ID);
     }
   }

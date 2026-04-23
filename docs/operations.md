@@ -195,3 +195,34 @@ Even with a mix of synchronous and asynchronous paths, the application includes 
 
 ### Distributed Tracing
 `traceId` and `spanId` continue to be injected into the MDC, allowing full correlation regardless of whether the log was processed synchronously or asynchronously.
+
+---
+
+## 7. Operational & Business Metrics
+
+The application is instrumented with **Micrometer** and exposes a rich set of metrics via the `/actuator/prometheus` endpoint. These are categorized into **Operational Metrics** (system health) and **Business Metrics** (transactional data).
+
+### 📈 Business Metrics (Financial Visibility)
+| Metric Name | Type | Description |
+|-------------|------|-------------|
+| `ingestion.volume.total` | Counter | Total USD volume ingested via the REST API. |
+| `bigquery.sink.volume.total` | Counter | Total USD volume successfully written to BigQuery. |
+| `transaction.batch.processed.count` | Counter | Total records successfully persisted to the database. |
+| `streams.deduplication.duplicates.count` | Counter | Number of duplicate records intercepted by KStreams. |
+
+### 🛠️ Operational Metrics (Pipeline Health)
+| Metric Name | Type | Description |
+|-------------|------|-------------|
+| `ingestion.latency` | Timer | Time taken for the REST ingestion call (incl. Kafka producer ACKs). |
+| `outbox.backlog.size` | Gauge | Current number of unprocessed messages in the Outbox table. |
+| `outbox.published.count` | Counter | Total messages successfully shipped from Outbox to Kafka. |
+| `outbox.lock.failures` | Counter | High values indicate lock contention between multiple pod instances. |
+| `bigquery.sink.paused` | Gauge | `1` if the sink consumer is paused due to downstream backpressure. |
+| `transaction.dlq.count` | Counter | Critical Metric: Total messages that failed all retries and landed in DLQ. |
+| `streams.source.malformed.count` | Counter | Number of corrupt/invalid records dropped at the stream entry point. |
+
+### 🚦 Recommended Alerts
+1. **DLQ Alert**: `rate(transaction.dlq.count[5m]) > 0`. Indicates a persistent failure or "Poison Pill" that requires manual investigation.
+2. **Outbox Lag**: `outbox.backlog.size > 5000`. Indicates that the Outbox poller cannot keep up with the ingestion rate or the database lock is stuck.
+3. **Sink Backpressure**: `bigquery.sink.paused == 1`. Indicates that the downstream BigQuery service is failing, and the pipeline has entered "protective mode."
+4. **Consumer Lag**: Monitor standard Kafka metrics: `kafka_consumer_lag`.
