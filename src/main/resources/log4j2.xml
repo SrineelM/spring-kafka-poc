@@ -11,28 +11,52 @@
     </Properties>
 
     <Appenders>
-        <!-- Standard Console Appender with Immediate Flush disabled for performance (handled by async) -->
+        <!-- Synchronous Console Appender -->
         <Console name="Console" target="SYSTEM_OUT">
             <PatternLayout pattern="${LOG_PATTERN}"/>
         </Console>
+
+        <!-- 
+             ASYNC WRAPPER: 
+             Routes logs to the console using a background thread.
+             We use this for INFO, WARN, and DEBUG levels to maximize throughput.
+        -->
+        <Async name="AsyncConsole" bufferSize="1024">
+            <AppenderRef ref="Console"/>
+            <!-- 
+                 CRITICAL: Deny ERROR level logs in the async appender. 
+                 This ensures errors are NOT queued and instead follow the 
+                 synchronous path defined in the Loggers section.
+            -->
+            <ThresholdFilter level="ERROR" onMatch="DENY" onMismatch="NEUTRAL"/>
+        </Async>
     </Appenders>
 
     <Loggers>
-        <!-- Tune Spring Kafka Logging down to avoid unnecessary IO overhead -->
-        <AsyncLogger name="org.springframework.kafka" level="INFO" includeLocation="false"/>
-        <AsyncLogger name="org.apache.kafka" level="WARN" includeLocation="false"/>
-        
-        <!-- Our application specific logger -->
-        <AsyncLogger name="com.example.springkafkapoc" level="DEBUG" includeLocation="false"/>
+        <!-- Default Root Logger -->
+        <Root level="INFO">
+            <!-- 
+                 Route to the Async appender for standard logs.
+                 The AsyncConsole appender filters out ERRORs.
+            -->
+            <AppenderRef ref="AsyncConsole"/>
+            
+            <!-- 
+                 Route ERROR logs DIRECTLY to the synchronous Console appender.
+                 The calling thread will wait for the write to finish, 
+                 ensuring errors are captured even during a crash.
+            -->
+            <AppenderRef ref="Console" level="ERROR"/>
+        </Root>
 
-        <!-- 
-             ASYNC CONFIGURATION:
-             Using AsyncRoot/AsyncLogger with LMAX Disruptor.
-             To ensure maximum performance AND strict arrival ordering in the Disruptor, 
-             the System Property 'Log4jContextSelector' is set in SpringKafkaPocApplication.
-        -->
-        <AsyncRoot level="INFO" includeLocation="false">
-            <AppenderRef ref="Console"/>
-        </AsyncRoot>
+        <!-- Tune noisy 3rd party logs -->
+        <Logger name="org.springframework.kafka" level="INFO" additivity="false">
+             <AppenderRef ref="AsyncConsole"/>
+             <AppenderRef ref="Console" level="ERROR"/>
+        </Logger>
+        <Logger name="org.apache.kafka" level="WARN" additivity="false">
+             <AppenderRef ref="AsyncConsole"/>
+             <AppenderRef ref="Console" level="ERROR"/>
+        </Logger>
     </Loggers>
 </Configuration>

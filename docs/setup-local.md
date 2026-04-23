@@ -80,7 +80,7 @@ curl http://localhost:8080/api/v1/analytics/daily-total/ACC-TEST-001
 ```
 
 ## 6. Database Schema
-When running with the `local` profile, the application uses an in-memory H2 database. The schema for the `Transactions`, `Outbox`, and `INT_LOCK` tables is created automatically on startup (`spring.jpa.hibernate.ddl-auto=create-drop`).
+When running with the `local` profile, the application uses an in-memory H2 database. The schema for the `Transactions`, `Outbox`, `AuditLog`, and `INT_LOCK` tables is created automatically on startup (`spring.jpa.hibernate.ddl-auto=create-drop`).
 
 You can access the H2 console at `http://localhost:8080/h2-console` to inspect the database.
 - **JDBC URL:** `jdbc:h2:mem:testdb`

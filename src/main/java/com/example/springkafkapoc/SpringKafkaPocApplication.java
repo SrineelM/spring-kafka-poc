@@ -23,15 +23,13 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * </ul>
  */
 @SpringBootApplication
+@org.springframework.boot.context.properties.ConfigurationPropertiesScan
 public class SpringKafkaPocApplication {
 
   public static void main(String[] args) {
-    // Enable asynchronous logging context selector globally for Log4j2 and LMAX
-    // Disruptor. Using the modern log4j2.contextSelector property.
-    // TUTORIAL: Async loggers provide higher throughput and lower latency, crucial
-    // for high-volume streaming applications.
-    System.setProperty(
-        "log4j2.contextSelector", "org.apache.logging.log4j.core.async.AsyncLoggerContextSelector");
+    // TUTORIAL: We've removed the global AsyncLoggerContextSelector to allow
+    // for "Mixed Mode" logging. This enables us to keep high-volume logs
+    // asynchronous while ensuring critical ERROR logs are synchronous.
 
     SpringApplication.run(SpringKafkaPocApplication.class, args);
   }

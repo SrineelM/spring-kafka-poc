@@ -6,13 +6,14 @@ import com.example.springkafkapoc.observability.KafkaCorrelationIdInterceptor;
 import io.confluent.kafka.serializers.KafkaAvroSerializer;
 import java.util.HashMap;
 import java.util.Map;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.kafka.KafkaProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -40,25 +41,11 @@ import org.springframework.util.backoff.ExponentialBackOff;
  */
 @Slf4j
 @Configuration
+@RequiredArgsConstructor
 public class KafkaCoreConfig {
 
-  @Value("${spring.kafka.bootstrap-servers}")
-  private String bootstrapServers;
-
-  @Value("${spring.kafka.properties.schema.registry.url:http://localhost:8081}")
-  private String schemaRegistryUrl;
-
-  @Value("${kafka.topic.replication-factor:1}")
-  private short replicationFactor;
-
-  @Value("${kafka.topic.pipeline-partitions:3}")
-  private int pipelinePartitions;
-
-  @Value("${kafka.topic.metrics-partitions:1}")
-  private int metricsPartitions;
-
-  @Value("${spring.kafka.producer.transaction-id-prefix:}")
-  private String transactionIdPrefix;
+  private final AppProperties appProperties;
+  private final KafkaProperties kafkaProperties;
 
   // -------------------------------------------------------------------------
   // Producer & Consumer Factories
@@ -75,8 +62,9 @@ public class KafkaCoreConfig {
   public ProducerFactory<String, TransactionEvent> producerFactory() {
     DefaultKafkaProducerFactory<String, TransactionEvent> factory =
         new DefaultKafkaProducerFactory<>(commonProducerProps());
-    if (transactionIdPrefix != null && !transactionIdPrefix.isEmpty()) {
-      factory.setTransactionIdPrefix(transactionIdPrefix);
+    String prefix = kafkaProperties.getProducer().getTransactionIdPrefix();
+    if (prefix != null && !prefix.isEmpty()) {
+      factory.setTransactionIdPrefix(prefix);
     }
     return factory;
   }
@@ -93,18 +81,17 @@ public class KafkaCoreConfig {
         ProducerConfig.PARTITIONER_CLASS_CONFIG, HighValueTransactionPartitioner.class.getName());
     DefaultKafkaProducerFactory<String, TransactionEvent> factory =
         new DefaultKafkaProducerFactory<>(props);
-    if (transactionIdPrefix != null && !transactionIdPrefix.isEmpty()) {
-      factory.setTransactionIdPrefix(transactionIdPrefix + "metrics-");
+    String prefix = kafkaProperties.getProducer().getTransactionIdPrefix();
+    if (prefix != null && !prefix.isEmpty()) {
+      factory.setTransactionIdPrefix(prefix + "metrics-");
     }
     return factory;
   }
 
   private Map<String, Object> commonProducerProps() {
-    Map<String, Object> props = new HashMap<>();
-    props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+    Map<String, Object> props = new HashMap<>(kafkaProperties.buildProducerProperties(null));
     props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
     props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, KafkaAvroSerializer.class);
-    props.put("schema.registry.url", schemaRegistryUrl);
     // Ensure exactly-once/idempotent semantics on the producer side
     props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
     // Guarantee strongest durability; producer returns success only if leader and
@@ -140,15 +127,15 @@ public class KafkaCoreConfig {
    */
   @Bean
   public ConsumerFactory<String, Object> consumerFactory() {
-    Map<String, Object> props = new HashMap<>();
-    props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+    Map<String, Object> props = new HashMap<>(kafkaProperties.buildConsumerProperties(null));
     props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
     props.put(
         ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
         "io.confluent.kafka.serializers.KafkaAvroDeserializer");
-    props.put("schema.registry.url", schemaRegistryUrl);
     props.put("specific.avro.reader", "true");
     props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 500); // Align with YAML default
+    // Ensure we only read committed messages from transactional producers
+    props.put(ConsumerConfig.ISOLATION_LEVEL_CONFIG, "read_committed");
     return new DefaultKafkaConsumerFactory<>(props);
   }
 
@@ -201,8 +188,7 @@ public class KafkaCoreConfig {
 
   @Bean
   public ConsumerFactory<String, String> replyConsumerFactory() {
-    Map<String, Object> props = new HashMap<>();
-    props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+    Map<String, Object> props = new HashMap<>(kafkaProperties.buildConsumerProperties(null));
     props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
     props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
     props.put(ConsumerConfig.GROUP_ID_CONFIG, "reply-consumer-group");
@@ -232,32 +218,110 @@ public class KafkaCoreConfig {
   @Bean
   public NewTopic rawTransactionsTopic() {
     return TopicBuilder.name(TopicConstants.RAW_TRANSACTIONS)
-        .partitions(pipelinePartitions)
-        .replicas(replicationFactor)
+        .partitions(appProperties.getKafka().getPartitions().getPipeline())
+        .replicas(appProperties.getKafka().getReplicationFactor())
         .build();
   }
 
   @Bean
   public NewTopic processedTransactionsTopic() {
     return TopicBuilder.name(TopicConstants.PROCESSED_TRANSACTIONS)
-        .partitions(pipelinePartitions)
-        .replicas(replicationFactor)
+        .partitions(appProperties.getKafka().getPartitions().getPipeline())
+        .replicas(appProperties.getKafka().getReplicationFactor())
         .build();
   }
 
   @Bean
   public NewTopic dailyAccountMetricsTopic() {
     return TopicBuilder.name(TopicConstants.DAILY_ACCOUNT_METRICS)
-        .partitions(metricsPartitions)
-        .replicas(replicationFactor)
+        .partitions(appProperties.getKafka().getPartitions().getMetrics())
+        .replicas(appProperties.getKafka().getReplicationFactor())
         .build();
   }
 
   @Bean
   public NewTopic rawTransactionsDlt() {
     return TopicBuilder.name(TopicConstants.RAW_TRANSACTIONS_DLT)
-        .partitions(pipelinePartitions)
-        .replicas(replicationFactor)
+        .partitions(appProperties.getKafka().getPartitions().getPipeline())
+        .replicas(appProperties.getKafka().getReplicationFactor())
+        .build();
+  }
+
+  // ── New Streams Output Topics ─────────────────────────────────────────────
+
+  @Bean
+  public NewTopic highValueTransactionsTopic() {
+    return TopicBuilder.name(TopicConstants.HIGH_VALUE_TRANSACTIONS)
+        .partitions(appProperties.getKafka().getPartitions().getPipeline())
+        .replicas(appProperties.getKafka().getReplicationFactor())
+        .build();
+  }
+
+  @Bean
+  public NewTopic normalTransactionsTopic() {
+    return TopicBuilder.name(TopicConstants.NORMAL_TRANSACTIONS)
+        .partitions(appProperties.getKafka().getPartitions().getPipeline())
+        .replicas(appProperties.getKafka().getReplicationFactor())
+        .build();
+  }
+
+  @Bean
+  public NewTopic allTransactionsAuditTopic() {
+    return TopicBuilder.name(TopicConstants.ALL_TRANSACTIONS_AUDIT)
+        .partitions(appProperties.getKafka().getPartitions().getPipeline())
+        .replicas(appProperties.getKafka().getReplicationFactor())
+        .build();
+  }
+
+  @Bean
+  public NewTopic accountBalancesTopic() {
+    return TopicBuilder.name(TopicConstants.ACCOUNT_BALANCES)
+        .partitions(appProperties.getKafka().getPartitions().getPipeline())
+        .replicas(appProperties.getKafka().getReplicationFactor())
+        .build();
+  }
+
+  @Bean
+  public NewTopic hourlyAccountMetricsTopic() {
+    return TopicBuilder.name(TopicConstants.HOURLY_ACCOUNT_METRICS)
+        .partitions(appProperties.getKafka().getPartitions().getMetrics())
+        .replicas(appProperties.getKafka().getReplicationFactor())
+        .build();
+  }
+
+  @Bean
+  public NewTopic sessionActivityTopic() {
+    return TopicBuilder.name(TopicConstants.SESSION_ACTIVITY)
+        .partitions(appProperties.getKafka().getPartitions().getMetrics())
+        .replicas(appProperties.getKafka().getReplicationFactor())
+        .build();
+  }
+
+  /**
+   * Fraud signals topic. Partition count MUST match {@code processed-transactions-topic} for the
+   * KStream-KStream co-partitioned join to work correctly.
+   */
+  @Bean
+  public NewTopic fraudSignalsTopic() {
+    return TopicBuilder.name(TopicConstants.FRAUD_SIGNALS)
+        .partitions(appProperties.getKafka().getPartitions().getPipeline())
+        .replicas(appProperties.getKafka().getReplicationFactor())
+        .build();
+  }
+
+  @Bean
+  public NewTopic fraudAlertsTopic() {
+    return TopicBuilder.name(TopicConstants.FRAUD_ALERTS)
+        .partitions(appProperties.getKafka().getPartitions().getPipeline())
+        .replicas(appProperties.getKafka().getReplicationFactor())
+        .build();
+  }
+
+  @Bean
+  public NewTopic auditThresholdEventsTopic() {
+    return TopicBuilder.name(TopicConstants.AUDIT_THRESHOLD_EVENTS)
+        .partitions(appProperties.getKafka().getPartitions().getPipeline())
+        .replicas(appProperties.getKafka().getReplicationFactor())
         .build();
   }
 

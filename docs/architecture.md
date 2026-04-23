@@ -22,8 +22,11 @@ graph TD
     E -->|DB + Outbox| F(Database);
     F --> G{OutboxService};
     G -->|Kafka Producer| H[Kafka Topic: processed-transactions];
-    H --> I{AnalyticsTopology};
-    I --> J[Kafka Topic: daily-account-metrics];
+    H --> I1{SourceTopology};
+    I1 --> I2{FraudTopology};
+    I1 --> I3{BalanceTopology};
+    I3 --> J[Kafka Topic: account-balances];
+    I2 --> K[Kafka Topic: fraud-alerts];
 ```
 
 ## Key Architectural Patterns

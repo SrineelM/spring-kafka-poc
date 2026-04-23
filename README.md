@@ -9,10 +9,10 @@ A production-ready **Proof of Concept** demonstrating a resilient, high-throughp
 This project has been refactored to adhere to strict **Hexagonal Architecture** and **Domain-Driven Design (DDD)** principles. It is designed to be "Bulletproof" in high-compliance environments.
 
 *   **🔒 Transactional Outbox:** Guarantees atomic writes between the database and Kafka. No message loss, guaranteed consistency.
-*   **📡 Intelligence:** Real-time stream processing with **Kafka Streams**, including **GlobalKTable** enrichment and **Tumbling Window** aggregation.
+*   **📡 Intelligence:** Real-time stream processing with **Modular Kafka Streams** (Source, Fraud, Balance, Metrics, Session modules) including **GlobalKTable** enrichment and **Tumbling Window** aggregation.
 *   **🔗 Observability:** Full-lifecycle tracing using **Correlation IDs** that propagate from HTTP Request Headers through to Kafka Headers and deep into Consumer threads.
-*   **🛡️ Resilience:** **Exactly-Once Semantics (EOS)**, **Idempotent Producers**, **Circuit Breakers** on sinks, and **Exponential Backoff** retries with **DLT** support.
-*   **🕋 Persistence Agnostic:** Swaps between **Cloud Spanner**, **AlloyDB**, and **H2** (local fallback) using a **Dynamic Persistence Router**.
+*   **🛡️ Resilience:** **Exactly-Once V2 (EOS)**, **24h TTL Deduplication**, **Idempotent Producers**, **Circuit Breakers** on sinks, and **Exponential Backoff** retries with **DLT** support.
+*   **⚡ Memory Safety:** **Bounded Suppression** buffers in windowed streams to prevent OutOfMemory (OOM) crashes under extreme session load.*   **🕋 Persistence Agnostic:** Swaps between **Cloud Spanner**, **AlloyDB**, and **H2** (local fallback) using a **Dynamic Persistence Router**.
 *   **⚡ High-Performance Logging:** Fully asynchronous logging via **Log4j2 & LMAX Disruptor** with guaranteed arrival ordering and **Global Sequence Numbering** for out-of-order log reconstruction.
 
 ---
@@ -90,13 +90,15 @@ This project has been refactored to adhere to strict **Hexagonal Architecture** 
 
 1. **[HTTP POST]** → `IngestionController`
 2. **[PRODUCE]** → `raw-transactions-topic` (TransactionId Key)
-3. **[LISTEN]** → `TransactionEventSingleProcessor`
+3. **[LISTEN]** → `TransactionEventSingleProcessor` (Idempotent)
 4. **[DB WRITE]** → Transaction Entity + Outbox Record (Atomic)
-5. **[POLL]** → `OutboxPublisherService` (Bounded, Locked)
+5. **[POLL]** → `OutboxPublisherService` (Distributed Locked)
 6. **[PRODUCE]** → `processed-transactions-topic`
-7. **[STREAM]** → `AnalyticsTopology` (Join + Aggregate)
-8. **[Materialize]** → `daily-account-aggregates-store`
-9. **[SINK]** → `BigQuerySinkService` (Resilient Circuit Breaker)
+7. **[SOURCE]** → `SourceTopology` (Deduplication + Defensive Filter + Re-keying)
+8. **[STATE]** → `BalanceTopology` & `MetricsTopology` (KTable Aggregations)
+9. **[JOIN]** → `FraudTopology` (Stream-Stream Correlation + Structured Alerts)
+10. **[QUERY]** → `AnalyticsQueryService` (Interactive Queries into RocksDB)
+11. **[SINK]** → `BigQuerySinkService` (Resilient Circuit Breaker)
 
 ---
 

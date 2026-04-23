@@ -128,6 +128,8 @@ app:
     replication-factor: 1
     streams:
       threads: 3
+      application-id: spring-kafka-poc-streams
+      state-dir: /tmp/kafka-streams-state
 
   bigquery:
     health-check-interval-ms: 30000
@@ -135,13 +137,18 @@ app:
   outbox:
     lock-ttl-ms: 30000
 
+  database:
+    spanner-enabled: false
+
 # -------------------------------------------------------------------------
 # LOGGING CONFIGURATION
 # -------------------------------------------------------------------------
 logging:
   pattern:
     # Synchronized with log4j2.xml for consistency across environments
-    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSSSSSSSXXX} [%thread] %-5level %logger{36} - [seq=%sn, traceId=%X{traceId}, spanId=%X{spanId}, correlationId=%X{correlationId}] - %msg%n"
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSSSSSSSXXX} [%thread] %-5level %logger{36}
+      - [seq=%sn, traceId=%X{traceId}, spanId=%X{spanId},
+      correlationId=%X{correlationId}] - %msg%n"
   level:
     root: INFO
     org.springframework.kafka: INFO

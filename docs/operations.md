@@ -174,28 +174,24 @@ ENTRYPOINT ["java", "-Xms2g", "-Xmx2g", "-XX:+UseG1GC", "-jar", "/app.jar"]
 
 ---
 
-## 6. Async Logging & Observability
+## 6. Mixed-Mode Logging & Observability
 
-The application uses **Log4j2 with LMAX Disruptor** for high-performance asynchronous logging. This ensures that logging operations do not block the main processing threads (Kafka consumers/producers).
+The application uses a **Mixed-Mode Logging** strategy with **Log4j2** to balance high-performance throughput with production-grade reliability.
+
+### Strategy
+1.  **Asynchronous (INFO, WARN, DEBUG)**: Standard runtime logs are routed through an `AsyncAppender`. This ensures that logging operations do not block the high-volume Kafka processing threads, maximizing application throughput.
+2.  **Synchronous (ERROR)**: Critical errors are routed **directly** to the console/disk appender. This ensures that the calling thread waits for the log to be written, guaranteeing that error details are captured even if the application crashes immediately after.
 
 ### Configuration
-- **Context Selector**: The `Log4jContextSelector` is set to `AsyncLoggerContextSelector` in `SpringKafkaPocApplication.java`.
-- **Buffer Size**: Default Disruptor ring buffer size is used (adjustable via `-Dlog4j2.asyncLoggerRingBufferSize`).
-- **Wait Strategy**: Uses a non-blocking wait strategy by default for maximum throughput.
+- **No Global Async**: The `AsyncLoggerContextSelector` is disabled to allow for this granular level-based control.
+- **Routing**: This is achieved in `log4j2.xml` using an `<Async>` wrapper with a `ThresholdFilter` that denies `ERROR` level logs, forcing them to take the synchronous path.
 
 ### Handling Out-of-Order Logs
-In high-throughput environments, multiple threads may produce logs almost simultaneously. While the Disruptor preserves the arrival order, some log aggregators (like GCP Cloud Logging) or log viewers might display them out of order due to timestamp collisions.
-
-To solve this, the application includes a **Global Sequence Number (`seq=%sn`)** in every log line.
+Even with a mix of synchronous and asynchronous paths, the application includes a **Global Sequence Number (`seq=%sn`)** in every log line.
 
 **How to reconstruct the correct order:**
-1.  **Sort by `timestamp`**: First level of sorting.
-2.  **Sort by `seq`**: If timestamps are identical, the sequence number guaranteed by Log4j2 before entering the async queue defines the absolute order.
-
-**Log Pattern:**
-```
-%d{ISO8601} [%t] %level %logger [seq=%sn, traceId=%X, spanId=%X] - %msg
-```
+1.  **Sort by `timestamp`**: Primary sort.
+2.  **Sort by `seq`**: Secondary sort for definitive ordering of events that occurred within the same millisecond or were logged across the sync/async divide.
 
 ### Distributed Tracing
-`traceId` and `spanId` are automatically injected into the MDC by Micrometer Tracing. These are included in the log pattern to allow correlation across service boundaries and with GCP Cloud Trace.
+`traceId` and `spanId` continue to be injected into the MDC, allowing full correlation regardless of whether the log was processed synchronously or asynchronously.

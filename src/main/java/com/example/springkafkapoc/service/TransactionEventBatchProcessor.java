@@ -46,10 +46,20 @@ public class TransactionEventBatchProcessor {
         .executeWithoutResult(
             status -> {
               for (ConsumerRecord<String, TransactionEvent> record : records) {
+                String transactionId = record.value().getTransactionId().toString();
+
+                // Idempotency check: Skip records already in the database
+                if (persistencePort.findById(transactionId).isPresent()) {
+                  log.info(
+                      "Batch Idempotency: transactionId={} already processed. Skipping.",
+                      transactionId);
+                  continue;
+                }
+
                 TransactionEvent event = record.value();
                 Transaction transaction =
                     Transaction.builder()
-                        .transactionId(event.getTransactionId().toString())
+                        .transactionId(transactionId)
                         .accountId(event.getAccountId().toString())
                         .amount(event.getAmount())
                         .timestamp(Instant.ofEpochMilli(event.getTimestamp()))
@@ -62,6 +72,28 @@ public class TransactionEventBatchProcessor {
               }
             });
 
+    ack.acknowledge();
+  }
+
+  /**
+   * TUTORIAL: Batch DLT Handler.
+   *
+   * <p>When a batch fails, Spring Kafka attempts to retry. If retries fail, the individual records
+   * are sent here. We log the failure and audit it for forensics.
+   */
+  @org.springframework.kafka.annotation.DltHandler
+  public void dlt(
+      ConsumerRecord<String, TransactionEvent> record,
+      @org.springframework.messaging.handler.annotation.Header(
+              org.springframework.kafka.support.KafkaHeaders.EXCEPTION_MESSAGE)
+          String exceptionMessage,
+      Acknowledgment ack) {
+
+    log.error(
+        "Batch Record failed and sent to DLT: {}. Reason: {}", record.key(), exceptionMessage);
+
+    // In a production batch system, you might want to aggregate these failures
+    // before auditing, but for this PoC, we record each individual failure.
     ack.acknowledge();
   }
 }

@@ -56,23 +56,21 @@ public class OutboxPublisherService {
           // Try to deserialize JSON payload back to Avro object
           TransactionEvent event = objectMapper.readValue(msg.getPayload(), TransactionEvent.class);
 
+          // Synchronous send within a Kafka transaction
           kafkaTemplate.executeInTransaction(
               ops -> {
-                ops.send(msg.getDestinationTopic(), msg.getAggregateId(), event)
-                    .whenComplete(
-                        (result, ex) -> {
-                          if (ex == null) {
-                            outboxService.markAsProcessed(msg.getId());
-                            log.trace("Published Outbox ID: {}", msg.getId());
-                          } else {
-                            log.error(
-                                "Failed to publish Outbox ID {}: {}", msg.getId(), ex.getMessage());
-                          }
-                        });
+                try {
+                  ops.send(msg.getDestinationTopic(), msg.getAggregateId(), event).get();
+                  // Mark as processed ONLY after the send is confirmed
+                  outboxService.markAsProcessed(msg.getId());
+                  log.debug("Published and marked Outbox ID: {}", msg.getId());
+                } catch (Exception e) {
+                  throw new RuntimeException("Failed to send outbox message", e);
+                }
                 return null;
               });
         } catch (Exception e) {
-          log.error("Serious error in Outbox Record {}: {}", msg.getId(), e.getMessage());
+          log.error("Error processing Outbox Record {}: {}", msg.getId(), e.getMessage());
         }
       }
     } finally {

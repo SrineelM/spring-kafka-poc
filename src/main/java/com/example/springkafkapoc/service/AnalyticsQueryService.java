@@ -1,6 +1,5 @@
 package com.example.springkafkapoc.service;
 
-import com.example.springkafkapoc.streams.AnalyticsTopology;
 import java.math.BigDecimal;
 import java.time.Instant;
 import lombok.RequiredArgsConstructor;
@@ -56,7 +55,7 @@ public class AnalyticsQueryService {
     ReadOnlyWindowStore<String, BigDecimal> store =
         streams.store(
             StoreQueryParameters.fromNameAndType(
-                AnalyticsTopology.DAILY_ACCOUNT_AGGREGATES_STORE,
+                com.example.springkafkapoc.streams.StoreConstants.DAILY_ACCOUNT_AGGREGATES_STORE,
                 QueryableStoreTypes.windowStore()));
 
     // 3. Fetch the windows for the given accountId within the last 24h

@@ -8,9 +8,16 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * <b>Transactional Outbox Pattern Entity</b>
+ * <b>Outbox Entity (The Message Buffer)</b>
  *
- * <p>Stores a record of every event that needs to be published to Kafka.
+ * <p><b>TUTORIAL:</b> This table is the secret sauce for <b>Reliable Messaging</b>.
+ *
+ * <p>Instead of sending a message to Kafka directly (which could fail if Kafka is down), we save it
+ * to this table in the <b>same transaction</b> as our business data.
+ *
+ * <p>A separate background "Poller" service then reads from this table and sends the message to
+ * Kafka, marking it as {@code processed} only after Kafka acknowledges it. This guarantees
+ * <b>At-Least-Once Delivery</b> even if the database or the application crashes mid-process.
  */
 @Entity
 @Table(name = "Outbox")

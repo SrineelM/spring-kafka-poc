@@ -129,6 +129,15 @@ public class TransactionEventSingleProcessor {
                 record.offset());
 
             try {
+              // IDEMPOTENCY CHECK: Skip if already processed to save resources
+              if (transactionPersistencePort.findById(transactionId).isPresent()) {
+                log.info(
+                    "Idempotency check: transactionId={} already processed. Skipping.",
+                    transactionId);
+                ack.acknowledge();
+                return;
+              }
+
               new TransactionTemplate(transactionManager)
                   .executeWithoutResult(
                       status -> {
@@ -176,7 +185,8 @@ public class TransactionEventSingleProcessor {
                       });
             } catch (DataIntegrityViolationException e) {
               log.warn(
-                  "Duplicate detection: transactionId={} already exists. Skipping.", transactionId);
+                  "Race condition duplicate detection: transactionId={} already exists. Skipping.",
+                  transactionId);
             }
 
             // 5. Acknowledge

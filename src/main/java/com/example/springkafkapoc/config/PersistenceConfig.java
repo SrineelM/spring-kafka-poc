@@ -7,7 +7,6 @@ import jakarta.persistence.EntityManagerFactory;
 import java.time.Duration;
 import javax.sql.DataSource;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -41,10 +40,9 @@ public class PersistenceConfig {
    * This ensures that locks are distributed across instances.
    */
   @Bean
-  public LockRepository lockRepository(
-      DataSource dataSource, @Value("${app.outbox.lock-ttl-ms:30000}") int ttlMs) {
+  public LockRepository lockRepository(DataSource dataSource, AppProperties appProperties) {
     DefaultLockRepository repo = new DefaultLockRepository(dataSource);
-    repo.setTimeToLive(ttlMs);
+    repo.setTimeToLive(appProperties.getOutbox().getLockTtlMs());
     return repo;
   }
 
