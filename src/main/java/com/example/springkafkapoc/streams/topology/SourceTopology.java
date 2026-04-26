@@ -24,36 +24,53 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
- * <b>Source & Enrichment Topology (The Entry Point)</b>
+ * <b>Source & Enrichment Topology — The Entry Gate</b>
  *
- * <p><b>TUTORIAL:</b> In a modular Kafka Streams application, the Source Topology is the most
- * critical part. It handles the initial "raw" ingestion and prepares the data for all other
- * specialized modules.
+ * <p><b>TUTORIAL — Role in the pipeline:</b><br>
+ * This is the first and most critical topology. ALL data flowing into the Kafka Streams engine
+ * passes through here. Its job is to: validate, deduplicate, enrich, re-key, and group records —
+ * so that downstream topologies receive clean, consistently-keyed data with no duplicates.
  *
- * <p>Patterns implemented here:
+ * <p><b>Processing steps (in order):</b>
+ * <ol>
+ *   <li><b>Read from topic:</b> Consume from {@code processed-transactions} using Avro SerDe.
+ *   <li><b>Register state store:</b> Add the RocksDB dedup store to the topology graph.
+ *   <li><b>Register GlobalKTable:</b> Populate account reference data for future enrichment joins.
+ *   <li><b>Defensive validation:</b> Drop records with null required fields — prevents NPE
+ *       cascades deep in stateful processors.
+ *   <li><b>Deduplication:</b> Use the {@link DeduplicationProcessor} to drop records with IDs
+ *       seen within the last 24h — guards against producer retries and at-least-once redelivery.
+ *   <li><b>Minimum amount filter:</b> Drop sub-cent transactions (auth checks / noise).
+ *   <li><b>Centralized re-keying:</b> Change the Kafka message key from transactionId to
+ *       accountId. This is the most expensive step (triggers a re-partition network shuffle)
+ *       — doing it once here saves every downstream topology from having to do it individually.
+ *   <li><b>Group:</b> Produce a {@link KGroupedStream} keyed by accountId for aggregations.
+ * </ol>
  *
- * <ul>
- *   <li><b>Defensive Validation:</b> Dropping "poison pills" before they reach stateful logic.
- *   <li><b>Deduplication:</b> Ensuring "Exactly-Once" even if the producer retries.
- *   <li><b>Centralized Re-keying:</b> Keying by AccountId once so downstream sub-topologies don't
- *       have to re-partition individually, saving massive amounts of network and CPU.
- * </ul>
+ * <p><b>SourceContext Pattern:</b><br>
+ * Rather than returning a single stream, this topology returns a {@link SourceContext} container
+ * that holds both the keyed stream and the grouped stream. Downstream topologies consume the
+ * appropriate form without re-reading from Kafka.
  */
 @Slf4j
 @Component
 public class SourceTopology {
 
-  /** Minimum amount to process; smaller amounts are considered noise/auth-checks. */
+  /** Sub-cent transactions are typically auth-checks or rounding artefacts — treat as noise. */
   private static final BigDecimal MINIMUM_VALID_AMOUNT = new BigDecimal("0.01");
 
-  /** How long to remember a transaction ID for deduplication. */
+  /**
+   * How long to retain a transaction ID in the deduplication store.
+   * 24h covers all realistic producer retry windows and at-least-once redelivery gaps.
+   */
   private static final Duration DEDUPLICATION_TTL = Duration.ofHours(24);
 
   private final SerdeConfig serdeConfig;
   private final MeterRegistry meterRegistry;
 
-  private final Counter malformedCounter;
-  private final Counter smallAmountCounter;
+  // ─── Metrics ──────────────────────────────────────────────────────────────────────────────────
+  private final Counter malformedCounter;    // Records dropped due to null required fields
+  private final Counter smallAmountCounter;  // Records dropped because amount < $0.01
 
   @Autowired
   public SourceTopology(SerdeConfig serdeConfig, MeterRegistry meterRegistry) {
@@ -62,20 +79,26 @@ public class SourceTopology {
 
     this.malformedCounter =
         Counter.builder("streams.source.malformed.count")
-            .description("Number of malformed records dropped at the source")
+            .description("Malformed records dropped at the source before entering the pipeline")
             .register(meterRegistry);
     this.smallAmountCounter =
         Counter.builder("streams.source.small_amount.count")
-            .description("Number of transactions dropped because the amount was too small")
+            .description("Transactions dropped because amount was below the minimum threshold")
             .register(meterRegistry);
   }
 
   /**
-   * <b>Source Context Pattern</b>
+   * Output of {@link SourceTopology#buildSource}. Carries two views of the same stream.
    *
-   * <p>TUTORIAL: Instead of returning a single stream, we return a "Context". This allows
-   * downstream topologies to choose between the flat Keyed Stream (for joins/routing) or the
-   * Grouped Stream (for windowed aggregations), all derived from the same source node.
+   * <p><b>TUTORIAL:</b> Returning this context object avoids forcing downstream topologies to
+   * re-read from Kafka. All downstream modules share the same source node in the topology DAG —
+   * zero duplicated consumption, zero extra broker load.
+   *
+   * <ul>
+   *   <li>{@code keyedStream} — a flat KStream keyed by accountId; used for joins and routing.
+   *   <li>{@code groupedStream} — a KGroupedStream keyed by accountId; used for aggregations
+   *       (balance, metrics, sessions).
+   * </ul>
    */
   @Data
   @Builder
@@ -84,31 +107,49 @@ public class SourceTopology {
     private final KGroupedStream<String, TransactionEvent> groupedStream;
   }
 
+  /**
+   * Builds the source topology and returns both stream views.
+   *
+   * @param builder the shared {@link StreamsBuilder} provided by {@code @EnableKafkaStreams}
+   * @return a {@link SourceContext} containing the keyed and grouped streams
+   */
   public SourceContext buildSource(StreamsBuilder builder) {
     var txnSerde = serdeConfig.transactionEventSerde();
 
-    // Register deduplication store (used by the DeduplicationProcessor)
+    // ─── Step 1: Register Deduplication State Store ───────────────────────────────────────────
+    // The store must be declared BEFORE the processor that uses it is added to the topology.
+    // Kafka Streams validates at build time that every processor's named stores exist.
+    // We use a persistent (RocksDB) store so dedup state survives stream-thread restarts.
     builder.addStateStore(
         Stores.keyValueStoreBuilder(
             Stores.persistentKeyValueStore(StoreConstants.TRANSACTION_DEDUPLICATION_STORE),
-            Serdes.String(),
-            Serdes.Long()));
+            Serdes.String(),  // Key: transactionId (String)
+            Serdes.Long()));  // Value: first-seen timestamp (epoch millis as Long)
 
-    // GlobalKTable for enrichment
-    // TUTORIAL: GlobalKTable is broadcast to ALL instances, making it perfect for small
-    // reference data (like Account Metadata) that you want to join without re-partitioning.
+    // ─── Step 2: Register GlobalKTable for Account Enrichment ─────────────────────────────────
+    // TUTORIAL: GlobalKTable vs KTable:
+    // - KTable: partitioned — each stream instance holds a subset of keys.
+    // - GlobalKTable: fully replicated — ALL instances hold ALL keys.
+    // Use GlobalKTable for small reference datasets (like account metadata) that you want
+    // to join without triggering a co-partitioning requirement.
     builder.globalTable(
         TopicConstants.ACCOUNT_REFERENCE,
         Consumed.with(Serdes.String(), Serdes.String()),
         Materialized.as(StoreConstants.ACCOUNT_REFERENCE_STORE));
 
+    // ─── Step 3: Read from the source topic ──────────────────────────────────────────────────
+    // We read from PROCESSED_TRANSACTIONS (not RAW) because only committed, audited
+    // transactions are ready for stream analytics.
     KStream<String, TransactionEvent> stream =
         builder.stream(
             TopicConstants.PROCESSED_TRANSACTIONS, Consumed.with(Serdes.String(), txnSerde));
 
     KStream<String, TransactionEvent> keyedStream =
         stream
-            // 1. Defensive Validation
+            // ─── Step 4: Defensive Validation ───────────────────────────────────────────────
+            // Drop any record missing required business fields before it reaches stateful logic.
+            // A null amount in a balance aggregation would throw an NPE deep in RocksDB operations
+            // — much harder to debug than catching it here at the gate.
             .filter(
                 (k, v) -> {
                   boolean valid =
@@ -118,43 +159,57 @@ public class SourceTopology {
                           && v.getAmount() != null;
                   if (!valid) {
                     malformedCounter.increment();
-                    if (log.isWarnEnabled()) {
-                      log.warn("Dropping malformed record: key={}", k);
-                    }
+                    log.warn("Dropping malformed record (null required field): key={}", k);
                   }
                   return valid;
                 })
-            // 2. Deduplication
+
+            // ─── Step 5: Deduplication via Low-Level Processor API ───────────────────────────
+            // TUTORIAL: .process() is the bridge from the high-level DSL to the Processor API.
+            // The lambda creates a new DeduplicationProcessor instance for each stream task
+            // (one per partition). Each task has its own isolated state store partition.
+            // The second argument names the state store this processor needs access to.
             .process(
                 () ->
                     new DeduplicationProcessor<>(
                         StoreConstants.TRANSACTION_DEDUPLICATION_STORE,
-                        event -> event.getTransactionId().toString(),
+                        event -> event.getTransactionId().toString(), // ID extraction lambda
                         DEDUPLICATION_TTL,
                         meterRegistry),
                 StoreConstants.TRANSACTION_DEDUPLICATION_STORE)
-            // 3. Minimum amount filter
+
+            // ─── Step 6: Minimum Amount Filter ───────────────────────────────────────────────
+            // Auth-check transactions and rounding artefacts (< $0.01) distort balance totals.
+            // Drop them here to keep aggregations meaningful.
             .filter(
                 (id, event) -> {
                   boolean valid = event.getAmount().compareTo(MINIMUM_VALID_AMOUNT) >= 0;
                   if (!valid) {
                     smallAmountCounter.increment();
-                    if (log.isDebugEnabled()) {
-                      log.debug(
-                          "Dropping small transaction: id={}, amount={}", id, event.getAmount());
-                    }
+                    log.debug("Dropping sub-threshold amount: id={}, amount={}", id, event.getAmount());
                   }
                   return valid;
                 })
-            // 4. Centralized Re-keying
-            // PRO TIP: Re-keying (selectKey) is expensive because it triggers a RE-PARTITION.
-            // By doing it once here at the source, all downstream topologies can share the
-            // re-keyed stream without each having to trigger their own expensive network shuffle.
+
+            // ─── Step 7: Centralized Re-keying by AccountId ──────────────────────────────────
+            // TUTORIAL — Why re-key here?
+            // Kafka partitions records by their key using a hash. The original key is transactionId.
+            // Aggregations (balance, metrics, sessions) need records grouped by accountId.
+            // selectKey() changes the key and triggers a repartition (an internal shuffle over
+            // the network to ensure all records for the same accountId go to the same partition).
+            // By doing this ONCE here, we save every downstream topology from doing its own
+            // expensive repartition — a significant network bandwidth and CPU saving.
             .selectKey((txnId, event) -> event.getAccountId().toString());
 
+    // ─── Step 8: Group for Aggregations ──────────────────────────────────────────────────────
+    // groupByKey() is cheaper than groupBy() because the re-keying already happened in selectKey().
+    // It does NOT trigger an additional repartition — it simply marks the stream as grouped.
     KGroupedStream<String, TransactionEvent> groupedStream =
         keyedStream.groupByKey(Grouped.with(Serdes.String(), txnSerde));
 
-    return SourceContext.builder().keyedStream(keyedStream).groupedStream(groupedStream).build();
+    return SourceContext.builder()
+        .keyedStream(keyedStream)   // For downstream joins (FraudTopology) and routing (RoutingTopology)
+        .groupedStream(groupedStream) // For downstream aggregations (Balance, Metrics, Session)
+        .build();
   }
 }
