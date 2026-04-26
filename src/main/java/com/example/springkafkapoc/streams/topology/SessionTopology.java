@@ -41,10 +41,10 @@ import org.springframework.stereotype.Component;
  * gap expires. This dramatically reduces downstream noise.
  *
  * <p><b>PRO TIP — Memory management:</b><br>
- * Suppression buffers in memory. The {@code BufferConfig.maxBytes(50MB)} ensures we don't run
- * out of heap. If the buffer fills up, {@code shutDownWhenFull()} halts the stream thread with
- * an exception — better than silently dropping data. In production, tune this to match your
- * expected peak session volume × average session size.
+ * Suppression buffers in memory. The {@code BufferConfig.maxBytes(50MB)} ensures we don't run out
+ * of heap. If the buffer fills up, {@code shutDownWhenFull()} halts the stream thread with an
+ * exception — better than silently dropping data. In production, tune this to match your expected
+ * peak session volume × average session size.
  */
 @Slf4j
 @Component
@@ -68,7 +68,7 @@ public class SessionTopology {
         .windowedBy(
             SessionWindows.ofInactivityGapAndGrace(Duration.ofMinutes(30), Duration.ofMinutes(2)))
         .aggregate(
-            () -> BigDecimal.ZERO,  // Initial value for new sessions
+            () -> BigDecimal.ZERO, // Initial value for new sessions
             // Adder: called for each new record that extends the session
             (accountId, event, total) -> total.add(event.getAmount()),
             // Merger: called when two previously separate sessions are merged.

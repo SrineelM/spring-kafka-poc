@@ -13,15 +13,16 @@ import org.apache.kafka.streams.state.KeyValueStore;
  * <b>Deduplication Processor — Stateful Idempotency at the Stream Layer</b>
  *
  * <p><b>TUTORIAL — Why use the Low-Level Processor API here?</b><br>
- * The Kafka Streams DSL (KStream.filter, KStream.map, etc.) is declarative and easy to use, but
- * it doesn't give you access to the raw state store or the ability to schedule periodic tasks.
- * For deduplication — where you need both a state store lookup AND a timed cleanup — the
- * <b>Processor API</b> is the right tool.
+ * The Kafka Streams DSL (KStream.filter, KStream.map, etc.) is declarative and easy to use, but it
+ * doesn't give you access to the raw state store or the ability to schedule periodic tasks. For
+ * deduplication — where you need both a state store lookup AND a timed cleanup — the <b>Processor
+ * API</b> is the right tool.
  *
  * <p><b>How deduplication works:</b>
+ *
  * <ol>
- *   <li>When a record arrives, extract its unique ID (e.g., transactionId) via the
- *       {@link IdExtractor} lambda.
+ *   <li>When a record arrives, extract its unique ID (e.g., transactionId) via the {@link
+ *       IdExtractor} lambda.
  *   <li>Look up that ID in the RocksDB {@link KeyValueStore}. If found → duplicate → drop.
  *   <li>If not found → first-time record → store the ID with its timestamp → forward downstream.
  *   <li>A scheduled Punctuator runs every hour to delete entries older than the configured TTL
@@ -29,17 +30,18 @@ import org.apache.kafka.streams.state.KeyValueStore;
  * </ol>
  *
  * <p><b>WHY a TTL?</b><br>
- * Without TTL cleanup, the deduplication store would accumulate every transaction ID ever
- * processed — eventually exhausting disk space or causing RocksDB compaction to become very slow.
- * The 24h TTL means we protect against duplicates within a day's processing window, which covers
- * all realistic producer retry scenarios.
+ * Without TTL cleanup, the deduplication store would accumulate every transaction ID ever processed
+ * — eventually exhausting disk space or causing RocksDB compaction to become very slow. The 24h TTL
+ * means we protect against duplicates within a day's processing window, which covers all realistic
+ * producer retry scenarios.
  *
  * <p><b>PRO TIP — Full-Scan Warning:</b><br>
  * The cleanup Punctuator uses {@code store.all()} which iterates the entire RocksDB store. At low
- * volumes (&lt;1M entries) this is fine. At very high volumes, consider a custom state store
- * with built-in TTL support (e.g., RocksDB TTL compaction filter) to avoid periodic full scans.
+ * volumes (&lt;1M entries) this is fine. At very high volumes, consider a custom state store with
+ * built-in TTL support (e.g., RocksDB TTL compaction filter) to avoid periodic full scans.
  *
  * <p><b>Generic type parameters:</b>
+ *
  * <ul>
  *   <li>{@code K} — the Kafka record key type (usually {@code String})
  *   <li>{@code V} — the Kafka record value type (e.g., {@code TransactionEvent})
@@ -50,9 +52,9 @@ import org.apache.kafka.streams.state.KeyValueStore;
 @Slf4j
 public class DeduplicationProcessor<K, V, ID> extends ContextualProcessor<K, V, K, V> {
 
-  private final String storeName;           // Name of the RocksDB state store to look up
+  private final String storeName; // Name of the RocksDB state store to look up
   private final IdExtractor<V, ID> idExtractor; // Lambda to extract the dedup ID from the value
-  private final Duration ttl;               // How long to remember a seen ID before evicting it
+  private final Duration ttl; // How long to remember a seen ID before evicting it
   private final MeterRegistry meterRegistry;
 
   // The actual RocksDB state store — obtained at init() time
@@ -60,8 +62,8 @@ public class DeduplicationProcessor<K, V, ID> extends ContextualProcessor<K, V, 
 
   // ─── Metrics ──────────────────────────────────────────────────────────────────────────────────
 
-  private final Counter duplicateCounter;  // How many records were dropped as duplicates
-  private final Counter recordCounter;     // Total records seen (for computing dedup rate)
+  private final Counter duplicateCounter; // How many records were dropped as duplicates
+  private final Counter recordCounter; // Total records seen (for computing dedup rate)
 
   public DeduplicationProcessor(
       String storeName, IdExtractor<V, ID> idExtractor, Duration ttl, MeterRegistry meterRegistry) {
@@ -88,8 +90,8 @@ public class DeduplicationProcessor<K, V, ID> extends ContextualProcessor<K, V, 
    *
    * <p><b>TUTORIAL:</b> This is where you obtain references to state stores and register
    * Punctuators. The {@link ProcessorContext} is the "toolbox" for the Processor API — it gives
-   * access to the store registry, the ability to schedule tasks, and the ability to forward
-   * records downstream.
+   * access to the store registry, the ability to schedule tasks, and the ability to forward records
+   * downstream.
    */
   @Override
   public void init(ProcessorContext<K, V> context) {
@@ -132,6 +134,7 @@ public class DeduplicationProcessor<K, V, ID> extends ContextualProcessor<K, V, 
    * Called for every incoming record.
    *
    * <p><b>TUTORIAL — Processing flow:</b>
+   *
    * <ol>
    *   <li>Guard: null values pass through without deduplication (e.g., tombstone records).
    *   <li>Extract the business ID from the record value using the injected {@link IdExtractor}.
@@ -173,12 +176,11 @@ public class DeduplicationProcessor<K, V, ID> extends ContextualProcessor<K, V, 
   /**
    * Functional interface for extracting the deduplication key from a record value.
    *
-   * <p><b>TUTORIAL:</b> Using a lambda here makes the processor fully generic. The caller
-   * passes in {@code event -> event.getTransactionId().toString()} at construction time.
-   * This means the same processor class can be reused for ANY event type — not just
-   * TransactionEvent.
+   * <p><b>TUTORIAL:</b> Using a lambda here makes the processor fully generic. The caller passes in
+   * {@code event -> event.getTransactionId().toString()} at construction time. This means the same
+   * processor class can be reused for ANY event type — not just TransactionEvent.
    *
-   * @param <V>  the value type
+   * @param <V> the value type
    * @param <ID> the extracted ID type (must be storable in the state store)
    */
   @FunctionalInterface

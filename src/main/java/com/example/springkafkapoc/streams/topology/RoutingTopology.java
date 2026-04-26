@@ -25,18 +25,20 @@ import org.springframework.stereotype.Component;
  *
  * <p><b>What this topology does:</b><br>
  * Splits the main transaction stream into three output topics:
+ *
  * <ol>
  *   <li><b>High-Value Transactions ({@literal >}$10,000):</b> Routed to a dedicated topic for
  *       compliance monitoring, manual review workflows, and high-priority consumer groups.
  *   <li><b>Standard Transactions (≤$10,000):</b> Routed to the normal processing topic.
- *   <li><b>All Transactions Audit:</b> EVERY transaction (high-value + standard) is merged
- *       and written here for complete audit trail continuity.
+ *   <li><b>All Transactions Audit:</b> EVERY transaction (high-value + standard) is merged and
+ *       written here for complete audit trail continuity.
  * </ol>
  *
  * <p><b>TUTORIAL — Named Branching API:</b><br>
  * {@code .split(Named.as("txn-"))} creates a named split node in the topology. Each branch is
  * accessed from the returned map using the fully qualified name: prefix + branch alias. This is
  * preferable to the older array-based API ({@code branch()[0]}) because named branches are:
+ *
  * <ul>
  *   <li>Self-documenting in the topology description.
  *   <li>Accessible by name — no index-based magic numbers.
@@ -61,8 +63,8 @@ public class RoutingTopology {
   /**
    * Builds the routing and branching topology.
    *
-   * @param keyedTransactionStream the transaction stream keyed by accountId, from
-   *                               {@link SourceTopology}
+   * @param keyedTransactionStream the transaction stream keyed by accountId, from {@link
+   *     SourceTopology}
    */
   public void build(KStream<String, TransactionEvent> keyedTransactionStream) {
     var txnSerde = serdeConfig.transactionEventSerde();
@@ -84,11 +86,11 @@ public class RoutingTopology {
     // Access branches by their full name (prefix + alias)
     // requireNonNull is defensive — in practice these branches always exist given our predicates
     KStream<String, TransactionEvent> highValue =
-        Objects.requireNonNull(branches.get("txn-high-value"),
-            "high-value branch not found — check branch naming");
+        Objects.requireNonNull(
+            branches.get("txn-high-value"), "high-value branch not found — check branch naming");
     KStream<String, TransactionEvent> standard =
-        Objects.requireNonNull(branches.get("txn-standard"),
-            "standard branch not found — check branch naming");
+        Objects.requireNonNull(
+            branches.get("txn-standard"), "standard branch not found — check branch naming");
 
     // ─── Route Each Branch to Its Dedicated Topic ─────────────────────────────────────────────
     // High-value consumers (compliance, audit) only subscribe to HIGH_VALUE_TRANSACTIONS

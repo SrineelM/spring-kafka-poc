@@ -26,18 +26,18 @@ import org.springframework.transaction.annotation.Transactional;
  * profile is active. In production ({@code SPRING_PROFILES_ACTIVE=prod}) or staging, this bean
  * simply doesn't exist — it's never loaded, never executed. No risk of polluting real data.
  *
- * <p><b>PRO TIP:</b> Always gate data seeders, test fixtures, and debug utilities behind a
- * profile. A common production incident pattern is a seeder accidentally running and flooding a
- * production Kafka topic with thousands of synthetic records.
+ * <p><b>PRO TIP:</b> Always gate data seeders, test fixtures, and debug utilities behind a profile.
+ * A common production incident pattern is a seeder accidentally running and flooding a production
+ * Kafka topic with thousands of synthetic records.
  *
  * <p><b>Why {@code @Transactional}?</b><br>
- * Each {@code seedTransaction()} call involves a Kafka send and an audit log write. Wrapping
- * the entire {@code run()} method in a transaction ensures that if any seed record fails, the
- * whole seed batch rolls back — leaving the system in a clean state rather than partially seeded.
+ * Each {@code seedTransaction()} call involves a Kafka send and an audit log write. Wrapping the
+ * entire {@code run()} method in a transaction ensures that if any seed record fails, the whole
+ * seed batch rolls back — leaving the system in a clean state rather than partially seeded.
  */
 @Slf4j
 @Component
-@Profile("local")  // ONLY active when SPRING_PROFILES_ACTIVE includes "local"
+@Profile("local") // ONLY active when SPRING_PROFILES_ACTIVE includes "local"
 @RequiredArgsConstructor
 public class SampleDataLoader implements CommandLineRunner {
 
@@ -48,6 +48,7 @@ public class SampleDataLoader implements CommandLineRunner {
    * Runs automatically at startup (when the local profile is active).
    *
    * <p>Seeds a small, representative set of transactions covering common scenarios:
+   *
    * <ul>
    *   <li>Two standard retail transactions (below high-value threshold).
    *   <li>One high-value transaction (above $10,000) — will be routed by the custom partitioner.
@@ -60,11 +61,13 @@ public class SampleDataLoader implements CommandLineRunner {
 
     // Standard retail transactions — will go to NORMAL_TRANSACTIONS after stream routing
     seedTransaction("TXN-SEED-001", "ACC-RETAIL-001", new BigDecimal("250.00"), "Morning Coffee");
-    seedTransaction("TXN-SEED-002", "ACC-RETAIL-001", new BigDecimal("89.99"),  "Cloud Service Subscription");
+    seedTransaction(
+        "TXN-SEED-002", "ACC-RETAIL-001", new BigDecimal("89.99"), "Cloud Service Subscription");
 
     // High-value transaction — will be routed to HIGH_VALUE_TRANSACTIONS by RoutingTopology
     // and sent to Partition 0 by HighValueTransactionPartitioner on the producer side
-    seedTransaction("TXN-SEED-003", "ACC-PREMIUM-001", new BigDecimal("75000.00"), "Real Estate Deposit");
+    seedTransaction(
+        "TXN-SEED-003", "ACC-PREMIUM-001", new BigDecimal("75000.00"), "Real Estate Deposit");
 
     log.info("=== Seeding complete. Streams processing will begin shortly. ===");
   }
@@ -76,9 +79,9 @@ public class SampleDataLoader implements CommandLineRunner {
    * success/failure asynchronously — the seed method does not block waiting for the broker ACK.
    *
    * @param transactionId a stable, human-readable seed ID for easy log correlation
-   * @param account       the account to associate the transaction with
-   * @param amount        the transaction amount
-   * @param detail        a human-readable description used in the audit log
+   * @param account the account to associate the transaction with
+   * @param amount the transaction amount
+   * @param detail a human-readable description used in the audit log
    */
   private void seedTransaction(
       String transactionId, String account, BigDecimal amount, String detail) {
@@ -102,7 +105,9 @@ public class SampleDataLoader implements CommandLineRunner {
               if (ex == null) {
                 log.info(
                     "Seeded: {} → {} | {} | partition={}",
-                    transactionId, account, detail,
+                    transactionId,
+                    account,
+                    detail,
                     result.getRecordMetadata().partition());
               } else {
                 log.error("Seed failed for {}: {}", transactionId, ex.getMessage());

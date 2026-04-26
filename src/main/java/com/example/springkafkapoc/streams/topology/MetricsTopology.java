@@ -25,31 +25,29 @@ import org.springframework.stereotype.Component;
  *
  * <ol>
  *   <li><b>Tumbling Windows (used here for 24h daily totals):</b><br>
- *       Fixed-size, non-overlapping. Each event belongs to exactly ONE window. Think of it as
- *       a daily summary that resets at midnight. Midnight Tuesday's events have no overlap with
+ *       Fixed-size, non-overlapping. Each event belongs to exactly ONE window. Think of it as a
+ *       daily summary that resets at midnight. Midnight Tuesday's events have no overlap with
  *       Wednesday's window.
  *       <pre>
  *       |--- Day 1 ---|--- Day 2 ---|--- Day 3 ---|
  *       </pre>
- *
  *   <li><b>Hopping Windows (used here for 1h trailing view, advancing every 15 min):</b><br>
- *       Fixed-size, overlapping. Each event belongs to MULTIPLE windows. Think of it as a
- *       "rolling hour" dashboard that refreshes every 15 minutes.
+ *       Fixed-size, overlapping. Each event belongs to MULTIPLE windows. Think of it as a "rolling
+ *       hour" dashboard that refreshes every 15 minutes.
  *       <pre>
  *       |--- 1h ---|
  *            |--- 1h ---|
  *                 |--- 1h ---|
  *       </pre>
- *
  *   <li><b>Session Windows (see {@link SessionTopology}):</b><br>
  *       Dynamic-size. Close after an inactivity gap. No fixed duration.
  * </ol>
  *
  * <p><b>Grace Period:</b><br>
- * {@code ofSizeAndGrace(size, grace)} allows late-arriving events to still be included in a
- * window that has logically closed. The grace period = how late can a record be (by event time)
- * and still be counted. After the grace expires, the window is sealed and its final value emitted.
- * Without a grace period, network delays would cause under-counting in time-sensitive aggregations.
+ * {@code ofSizeAndGrace(size, grace)} allows late-arriving events to still be included in a window
+ * that has logically closed. The grace period = how late can a record be (by event time) and still
+ * be counted. After the grace expires, the window is sealed and its final value emitted. Without a
+ * grace period, network delays would cause under-counting in time-sensitive aggregations.
  *
  * <p><b>Interactive Queries:</b><br>
  * Both stores ({@code DAILY_ACCOUNT_AGGREGATES_STORE} and {@code HOURLY_HOPPING_STORE}) are
@@ -80,10 +78,10 @@ public class MetricsTopology {
     groupedStream
         .windowedBy(TimeWindows.ofSizeAndGrace(Duration.ofHours(24), Duration.ofMinutes(5)))
         .aggregate(
-            () -> BigDecimal.ZERO,                                     // Starting value
+            () -> BigDecimal.ZERO, // Starting value
             (accountId, event, total) -> total.add(event.getAmount()), // Accumulator
             Materialized.<String, BigDecimal, WindowStore<Bytes, byte[]>>as(
-                    StoreConstants.DAILY_ACCOUNT_AGGREGATES_STORE)     // Named for Interactive Queries
+                    StoreConstants.DAILY_ACCOUNT_AGGREGATES_STORE) // Named for Interactive Queries
                 .withKeySerde(Serdes.String())
                 .withValueSerde(decimalSerde))
         .toStream()
@@ -102,7 +100,8 @@ public class MetricsTopology {
     groupedStream
         .windowedBy(
             TimeWindows.ofSizeAndGrace(Duration.ofHours(1), Duration.ofMinutes(2))
-                .advanceBy(Duration.ofMinutes(15))) // Hopping interval — creates overlapping windows
+                .advanceBy(
+                    Duration.ofMinutes(15))) // Hopping interval — creates overlapping windows
         .aggregate(
             () -> BigDecimal.ZERO,
             (accountId, event, total) -> total.add(event.getAmount()),

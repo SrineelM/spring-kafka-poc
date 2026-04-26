@@ -33,15 +33,15 @@ import org.springframework.web.bind.annotation.*;
  * thousands of concurrent ingestion requests without thread starvation.
  *
  * <p><b>PRO TIP — Always validate at the boundary:</b><br>
- * Bean Validation ({@code @Valid}, {@code @NotNull}, {@code @Positive}) catches bad data at
- * the HTTP boundary — before it ever reaches the Avro serializer. Without this, a null amount
- * causes a NullPointerException deep in the Kafka producer, producing a cryptic error message
- * that's hard to correlate back to the HTTP request.
+ * Bean Validation ({@code @Valid}, {@code @NotNull}, {@code @Positive}) catches bad data at the
+ * HTTP boundary — before it ever reaches the Avro serializer. Without this, a null amount causes a
+ * NullPointerException deep in the Kafka producer, producing a cryptic error message that's hard to
+ * correlate back to the HTTP request.
  *
  * <p><b>202 vs. 200:</b><br>
- * We return {@code 202 Accepted} (not 200 OK) because the request has been accepted for
- * processing but processing is not yet complete. The HTTP spec is clear: 202 means "I got it,
- * I'm working on it." 200 would incorrectly imply the work is done.
+ * We return {@code 202 Accepted} (not 200 OK) because the request has been accepted for processing
+ * but processing is not yet complete. The HTTP spec is clear: 202 means "I got it, I'm working on
+ * it." 200 would incorrectly imply the work is done.
  */
 @Slf4j
 @RestController
@@ -53,9 +53,9 @@ public class IngestionController {
 
   // ─── Metrics ──────────────────────────────────────────────────────────────────────────────────
 
-  private final Timer ingestionTimer;        // End-to-end HTTP call latency (including Kafka ack)
-  private final Counter totalVolumeCounter;  // Total $ volume ingested via this endpoint
-  private final Counter errorCounter;        // Failed ingestion attempts (Kafka or internal)
+  private final Timer ingestionTimer; // End-to-end HTTP call latency (including Kafka ack)
+  private final Counter totalVolumeCounter; // Total $ volume ingested via this endpoint
+  private final Counter errorCounter; // Failed ingestion attempts (Kafka or internal)
 
   @Autowired
   public IngestionController(DataIngestionService ingestionService, MeterRegistry meterRegistry) {
@@ -82,11 +82,12 @@ public class IngestionController {
    *
    * <p><b>TUTORIAL — Java Records for Request Objects:</b><br>
    * A Java {@code record} (Java 16+) gives us an immutable data class with canonical constructor,
-   * {@code equals()}, {@code hashCode()}, and {@code toString()} for free. This is cleaner than
-   * a mutable POJO for request bodies — an HTTP request body should never be mutated after
+   * {@code equals()}, {@code hashCode()}, and {@code toString()} for free. This is cleaner than a
+   * mutable POJO for request bodies — an HTTP request body should never be mutated after
    * deserialization.
    *
    * <p><b>Validation annotations:</b>
+   *
    * <ul>
    *   <li>{@code @NotNull @Positive} on {@code amount}: rejects null and zero/negative values
    *       before the business layer ever sees the request.
@@ -95,8 +96,7 @@ public class IngestionController {
    * </ul>
    */
   public record IngestionRequest(
-      @NotNull @Positive BigDecimal amount,
-      @NotBlank @Size(max = 128) String accountId) {}
+      @NotNull @Positive BigDecimal amount, @NotBlank @Size(max = 128) String accountId) {}
 
   /**
    * {@code POST /api/v1/transactions} — Ingest a new transaction.
@@ -105,9 +105,8 @@ public class IngestionController {
    * fails, Spring automatically returns a 400 Bad Request with field-level error details.
    *
    * @param request the transaction payload (amount + accountId), validated by {@code @Valid}
-   * @return 202 Accepted with the transaction ID on success,
-   *         400 Bad Request on validation failure,
-   *         500 Internal Server Error on Kafka or serialization failure
+   * @return 202 Accepted with the transaction ID on success, 400 Bad Request on validation failure,
+   *     500 Internal Server Error on Kafka or serialization failure
    */
   @PostMapping
   public CompletableFuture<ResponseEntity<String>> ingest(
@@ -139,8 +138,7 @@ public class IngestionController {
               errorCounter.increment();
 
               log.error(
-                  "Ingestion failed: accountId={}, error={}",
-                  request.accountId(), ex.getMessage());
+                  "Ingestion failed: accountId={}, error={}", request.accountId(), ex.getMessage());
 
               return ResponseEntity.internalServerError()
                   .body("Ingestion failed: " + ex.getMessage());
@@ -150,11 +148,11 @@ public class IngestionController {
   /**
    * {@code GET /api/v1/transactions/health} — Simple readiness probe.
    *
-   * <p><b>TUTORIAL:</b> Load balancers (GCP Load Balancer, Kubernetes Ingress) periodically
-   * call a health endpoint to decide whether to route traffic to this pod. A lightweight 200 OK
-   * here is sufficient — it proves the web layer is up and Spring context is loaded.
-   * For deeper health checks (DB connectivity, Kafka connectivity), use Spring Actuator's
-   * {@code /actuator/health} endpoint instead.
+   * <p><b>TUTORIAL:</b> Load balancers (GCP Load Balancer, Kubernetes Ingress) periodically call a
+   * health endpoint to decide whether to route traffic to this pod. A lightweight 200 OK here is
+   * sufficient — it proves the web layer is up and Spring context is loaded. For deeper health
+   * checks (DB connectivity, Kafka connectivity), use Spring Actuator's {@code /actuator/health}
+   * endpoint instead.
    */
   @GetMapping("/health")
   public ResponseEntity<String> health() {

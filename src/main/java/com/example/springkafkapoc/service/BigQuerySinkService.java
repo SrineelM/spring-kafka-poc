@@ -23,31 +23,31 @@ import org.springframework.stereotype.Service;
  * <p><b>TUTORIAL — What is a "Sink" in stream processing?</b><br>
  * A sink is the final destination for processed data. This service consumes aggregated metrics
  * produced by the {@link com.example.springkafkapoc.streams.topology.MetricsTopology} from the
- * {@code daily-account-metrics} topic and writes them to Google BigQuery for dashboards and
- * ad-hoc analytics queries.
+ * {@code daily-account-metrics} topic and writes them to Google BigQuery for dashboards and ad-hoc
+ * analytics queries.
  *
  * <p><b>Three Resilience Patterns implemented here:</b>
  *
  * <p><b>1. Circuit Breaker (Resilience4j):</b><br>
  * Guards every BigQuery write. If 50% of calls fail within a sliding window of 10, the circuit
- * "opens" — all subsequent calls immediately invoke the fallback without attempting BigQuery.
- * This protects threads and prevents timeout pile-ups.
+ * "opens" — all subsequent calls immediately invoke the fallback without attempting BigQuery. This
+ * protects threads and prevents timeout pile-ups.
  *
  * <p><b>2. Backpressure via Consumer Pause:</b><br>
- * When the circuit opens, the fallback method PAUSES the Kafka listener. This stops the
- * application from polling new records it can't write. Without this, the consumer would keep
- * fetching records, fail, and build up a retry mountain — the "retry storm" anti-pattern.
+ * When the circuit opens, the fallback method PAUSES the Kafka listener. This stops the application
+ * from polling new records it can't write. Without this, the consumer would keep fetching records,
+ * fail, and build up a retry mountain — the "retry storm" anti-pattern.
  *
  * <p><b>3. Proactive Self-Healing:</b><br>
- * A scheduled health-check periodically tests whether BigQuery is available again. If it is,
- * the Kafka listener is RESUMED automatically — no human intervention required. This is
- * "self-healing" infrastructure.
+ * A scheduled health-check periodically tests whether BigQuery is available again. If it is, the
+ * Kafka listener is RESUMED automatically — no human intervention required. This is "self-healing"
+ * infrastructure.
  *
  * <p><b>WHY String payload?</b><br>
- * The upstream MetricsTopology uses the {@code optimizedBigDecimalSerde} for RocksDB, but
- * outputs to the Kafka topic using that same serde (scaled long bytes). However, when
- * cross-consuming from a non-Streams consumer, using a {@code StringDeserializer} is simpler
- * and more explicit. The value is parsed to {@link BigDecimal} here.
+ * The upstream MetricsTopology uses the {@code optimizedBigDecimalSerde} for RocksDB, but outputs
+ * to the Kafka topic using that same serde (scaled long bytes). However, when cross-consuming from
+ * a non-Streams consumer, using a {@code StringDeserializer} is simpler and more explicit. The
+ * value is parsed to {@link BigDecimal} here.
  */
 @Slf4j
 @Service
@@ -66,9 +66,9 @@ public class BigQuerySinkService {
 
   // ─── Metrics ──────────────────────────────────────────────────────────────────────────────────
 
-  private final Timer sinkTimer;           // Latency per write operation
-  private final Counter successCounter;    // Successful writes
-  private final Counter errorCounter;      // Failed writes (triggers circuit breaker)
+  private final Timer sinkTimer; // Latency per write operation
+  private final Counter successCounter; // Successful writes
+  private final Counter errorCounter; // Failed writes (triggers circuit breaker)
   private final Counter totalVolumeCounter; // Total $ volume flushed to BigQuery
   private final AtomicLong pausedGauge = new AtomicLong(0); // 0=running, 1=paused (for Grafana)
 
@@ -104,15 +104,15 @@ public class BigQuerySinkService {
    *
    * <p><b>TUTORIAL — @CircuitBreaker:</b><br>
    * Resilience4j intercepts every call to this method. On failure, it increments its internal
-   * failure counter. If the failure rate exceeds the configured threshold (50% over 10 calls),
-   * the circuit opens and {@code fallbackSink} is called for all subsequent invocations —
-   * without attempting the BigQuery write. The circuit stays open until the health-check
-   * scheduled task proves BigQuery is healthy again.
+   * failure counter. If the failure rate exceeds the configured threshold (50% over 10 calls), the
+   * circuit opens and {@code fallbackSink} is called for all subsequent invocations — without
+   * attempting the BigQuery write. The circuit stays open until the health-check scheduled task
+   * proves BigQuery is healthy again.
    *
    * <p><b>WHY String and not a typed Avro/JSON payload?</b><br>
    * The upstream topology serializes BigDecimal using the compact scaled-long serde. We configure
-   * this specific listener with a {@code StringDeserializer} override to consume the raw value
-   * as a string, then parse it to BigDecimal here for clarity and testability.
+   * this specific listener with a {@code StringDeserializer} override to consume the raw value as a
+   * string, then parse it to BigDecimal here for clarity and testability.
    */
   @KafkaListener(
       id = LISTENER_ID,
@@ -155,15 +155,18 @@ public class BigQuerySinkService {
    * Resilience4j fallback — invoked when the circuit is OPEN or when a call fails.
    *
    * <p><b>TUTORIAL — Backpressure via Consumer Pause:</b><br>
-   * Instead of just logging and returning, we actively pause the Kafka listener. This stops
-   * the consumer from fetching more records from the broker. The records remain safely in Kafka
-   * (Kafka retains them indefinitely by retention policy) until the consumer resumes.
+   * Instead of just logging and returning, we actively pause the Kafka listener. This stops the
+   * consumer from fetching more records from the broker. The records remain safely in Kafka (Kafka
+   * retains them indefinitely by retention policy) until the consumer resumes.
    *
-   * <p>Without this pause, the consumer would keep fetching records, failing to write them, and
-   * the error rate would spiral — causing timeouts, thread starvation, and offset lag.
+   * <p>Without this pause, the consumer would keep fetching records, failing to write them, and the
+   * error rate would spiral — causing timeouts, thread starvation, and offset lag.
    */
   public void fallbackSink(String rawTotalAmount, Exception ex) {
-    log.error("BigQuery unavailable. Pausing listener. metric={}, cause={}", rawTotalAmount, ex.getMessage());
+    log.error(
+        "BigQuery unavailable. Pausing listener. metric={}, cause={}",
+        rawTotalAmount,
+        ex.getMessage());
     errorCounter.increment();
 
     // compareAndSet(false, true) is atomic — ensures only the first failing call pauses
@@ -183,11 +186,11 @@ public class BigQuerySinkService {
    * Periodic recovery check — runs every {@code app.bigquery.health-check-interval-ms} (30s).
    *
    * <p><b>TUTORIAL:</b> This scheduled method is the "recovery probe." While the listener is
-   * paused, this runs every 30 seconds and attempts a lightweight BigQuery health check.
-   * If BigQuery is healthy, it resumes the consumer so normal data flow restores automatically.
+   * paused, this runs every 30 seconds and attempts a lightweight BigQuery health check. If
+   * BigQuery is healthy, it resumes the consumer so normal data flow restores automatically.
    *
-   * <p>This prevents the situation where BigQuery recovers at 3 AM but no engineer is awake
-   * to manually restart the consumer — the system heals itself.
+   * <p>This prevents the situation where BigQuery recovers at 3 AM but no engineer is awake to
+   * manually restart the consumer — the system heals itself.
    */
   @Scheduled(fixedDelayString = "${app.bigquery.health-check-interval-ms:30000}")
   public void resumeHealthCheck() {

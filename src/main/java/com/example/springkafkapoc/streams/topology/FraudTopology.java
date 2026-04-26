@@ -24,35 +24,39 @@ import org.springframework.stereotype.Component;
  *
  * <p><b>TUTORIAL — Stream-Stream Joins:</b><br>
  * A KStream-KStream join correlates two independent event streams within a shared time window.
- * Unlike KTable joins (which join a stream against a point-in-time snapshot), a stream-stream
- * join considers ALL events within a time window on BOTH sides.
+ * Unlike KTable joins (which join a stream against a point-in-time snapshot), a stream-stream join
+ * considers ALL events within a time window on BOTH sides.
  *
  * <p><b>What this topology does:</b><br>
- * When a transaction occurs for an account that also has a fraud signal within ±5 minutes,
- * a {@link FraudAlert} is emitted to the fraud-alerts topic. This is "temporal correlation" —
- * two independent events are linked by proximity in time, not by a shared database lookup.
+ * When a transaction occurs for an account that also has a fraud signal within ±5 minutes, a {@link
+ * FraudAlert} is emitted to the fraud-alerts topic. This is "temporal correlation" — two
+ * independent events are linked by proximity in time, not by a shared database lookup.
  *
  * <p><b>Real-world analogy:</b><br>
- * Think of a bank's fraud team sending a "watch this account" signal. If that same account
- * makes a transaction within 5 minutes of the signal, the system automatically flags it. The
- * detection happens in milliseconds — far faster than any human alert-checking workflow.
+ * Think of a bank's fraud team sending a "watch this account" signal. If that same account makes a
+ * transaction within 5 minutes of the signal, the system automatically flags it. The detection
+ * happens in milliseconds — far faster than any human alert-checking workflow.
  *
  * <p><b>Co-partitioning requirement:</b><br>
  * For a KStream-KStream join to work correctly, BOTH input topics MUST be:
+ *
  * <ol>
  *   <li>Partitioned by the same key (here: accountId — set in SourceTopology re-keying).
  *   <li>Have the same number of partitions.
  * </ol>
- * If either condition is violated, records with the same key may land on different partitions
- * in each topic, and the join will miss them. Partition counts are defined in
- * {@link com.example.springkafkapoc.config.KafkaCoreConfig}.
+ *
+ * If either condition is violated, records with the same key may land on different partitions in
+ * each topic, and the join will miss them. Partition counts are defined in {@link
+ * com.example.springkafkapoc.config.KafkaCoreConfig}.
  *
  * <p><b>PRO TIP — JoinWindows and Grace:</b><br>
  * The {@code ofTimeDifferenceAndGrace(5min, 30sec)} means:
+ *
  * <ul>
  *   <li>Join window: ±5 minutes (a transaction within 5 min of a signal = match).
  *   <li>Grace period: 30 seconds for late-arriving records to still be joined.
  * </ul>
+ *
  * Without grace, a 1-second network delay could cause a transaction to miss its fraud signal.
  */
 @Slf4j
@@ -65,7 +69,7 @@ public class FraudTopology {
   /**
    * Builds the fraud detection join topology.
    *
-   * @param builder                the shared {@link StreamsBuilder}
+   * @param builder the shared {@link StreamsBuilder}
    * @param keyedTransactionStream the transaction stream keyed by accountId (from SourceTopology)
    */
   public void build(
@@ -108,11 +112,11 @@ public class FraudTopology {
 
               // Build a structured FraudAlert domain object for downstream consumers
               return FraudAlert.builder()
-                  .alertId(UUID.randomUUID().toString())  // Unique alert ID for tracking
+                  .alertId(UUID.randomUUID().toString()) // Unique alert ID for tracking
                   .transactionId(transaction.getTransactionId().toString())
                   .accountId(transaction.getAccountId().toString())
                   .amount(transaction.getAmount())
-                  .signal(fraudReason)     // The fraud signal description from the signal stream
+                  .signal(fraudReason) // The fraud signal description from the signal stream
                   .timestamp(Instant.now()) // Wall-clock time of the alert (not event time)
                   .build();
             },

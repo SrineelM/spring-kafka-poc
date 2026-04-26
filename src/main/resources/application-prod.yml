@@ -1,23 +1,33 @@
 # =========================================================================
-# PRODUCTION PROFILE (application-prod.yml)
+# PRODUCTION PROFILE (application-prod.yml) — THE CLOUD BATTLEFIELD
 # =========================================================================
-# Use this for GKE/Cloud deployments with real GCP resources.
-# Settings here override application.yml.
+# This profile is specifically tuned for Google Cloud Platform (GKE) 
+# deployments using managed Spanner, AlloyDB, and Confluent Cloud.
 #
-# TUTORIAL: In production, hardcoding secrets or instance IDs is a security
-# risk. Instead, Spring Boot resolves these properties dynamically from
-# injected environment variables like ${GCP_PROJECT_ID}.
+# TUTORIAL: Security & Dynamic Resolution
+# In production, we NEVER hardcode secrets or connection strings. Instead, 
+# we use ${VARIABLE_NAME} syntax to resolve values from:
+# 1. Environment variables (set in GKE Deployment YAML)
+# 2. GCP Secret Manager (integrated via Spring Cloud GCP)
 # =========================================================================
 
 spring:
   cloud:
     gcp:
-      # Configurations for real GCP Spanner databases
+      # -------------------------------------------------------------------
+      # CLOUD SPANNER — Global Scale Persistence
+      # -------------------------------------------------------------------
+      # Spanner provides external consistency and high availability.
+      # These properties are injected at runtime by the environment.
       spanner:
         project-id: ${GCP_PROJECT_ID}
         instance-id: ${SPANNER_INSTANCE_ID}
         database: ${SPANNER_DATABASE_ID}
-      # Configurations for GCP AlloyDB
+      
+      # -------------------------------------------------------------------
+      # ALLOYDB — High-Performance PostgreSQL
+      # -------------------------------------------------------------------
+      # Used as an alternative or supplementary relational store.
       alloydb:
         project-id: ${GCP_PROJECT_ID}
         region: ${ALLOYDB_REGION}
@@ -25,18 +35,31 @@ spring:
         instance: ${ALLOYDB_INSTANCE_ID}
         database: ${ALLOYDB_DATABASE_ID}
 
-  # Production Kafka targets (managed Kafka, Confluent Cloud, etc.)
+  # -----------------------------------------------------------------------
+  # PRODUCTION KAFKA — Confluent Cloud or Managed Kafka
+  # -----------------------------------------------------------------------
   kafka:
+    # Points to the production broker cluster (e.g. pkc-xyz.gcp.confluent.cloud:9092)
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS}
     properties:
+      # Secure Schema Registry endpoint
       schema.registry.url: ${SCHEMA_REGISTRY_URL}
 
+# -------------------------------------------------------------------------
+# PRODUCTION ARCHITECTURE TUNING
+# -------------------------------------------------------------------------
 app:
   database:
-    # Enables the real Spanner transaction layer rather than the local H2 fallback
+    # Set to true to activate the real SpannerTransactionService via 
+    # @ConditionalOnProperty. This switches the app from local H2 logic
+    # to the high-scale Spanner adapter.
     spanner-enabled: true
 
+# -------------------------------------------------------------------------
+# PRODUCTION LOGGING — Optimized for Cloud Logging
+# -------------------------------------------------------------------------
 logging:
   level:
-    # Keeps logging at an appropriate level for production
+    # Keeps logs concise to save on ingestion/storage costs while still 
+    # capturing all critical business events.
     com.example.springkafkapoc: INFO

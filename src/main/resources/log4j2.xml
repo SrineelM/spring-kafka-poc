@@ -1,60 +1,90 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+    =========================================================================
+    LOG4J2 CONFIGURATION — MIXED-MODE LOGGING STRATEGY
+    =========================================================================
+    In a high-throughput Kafka system (50k+ events/sec), logging can become
+     a bottleneck if it blocks the processing threads (IO Wait).
+    
+    TUTORIAL — Async vs. Sync Logging:
+    1. ASYNC (Default for INFO/DEBUG): Logs are handed off to a background 
+       LMAX Disruptor ring buffer. The processing thread returns immediately.
+       Use this for high-volume operational logs.
+    2. SYNC (For ERROR): For critical failures, we want the calling thread 
+       to WAIT until the log is flushed to disk/console. This ensures that 
+       if the JVM crashes immediately after an error, the log message 
+       actually made it out.
+    =========================================================================
+-->
 <Configuration status="WARN">
     <Properties>
-        <!-- Log pattern includes:
-             %d: High precision ISO8601 timestamp (nano-seconds)
-             %sn: Global Sequence Number for out-of-order log reconstruction
-             %X: Mapped Diagnostic Context (traceId, spanId) for distributed tracing
-             %t: Thread name
+        <!-- 
+            TUTORIAL — The Anatomy of a Production Log Pattern:
+            %d: ISO8601 timestamp with nanosecond precision. Mandatory for interleaving
+                logs from multiple pods in Cloud Logging.
+            %sn: Global Sequence Number. Essential for reconstructing the true order 
+                 of events when logs arrive out-of-order at a central collector.
+            %X: Mapped Diagnostic Context (MDC). Injects traceId and spanId (from 
+                Spring Cloud Sleuth/Micrometer) and correlationId (from our custom context).
+            %15.15t: Thread name, padded to 15 chars. Helps track the lifecycle 
+                     of a single Kafka stream task or consumer thread.
         -->
-        <Property name="LOG_PATTERN">%d{yyyy-MM-dd'T'HH:mm:ss.SSSSSSSSSXXX} [%15.15t] %-5level %logger{36} [seq=%sn, traceId=%X{traceId}, spanId=%X{spanId}] - %msg%n</Property>
+        <Property name="LOG_PATTERN">%d{yyyy-MM-dd'T'HH:mm:ss.SSSSSSSSSXXX} [%15.15t] %-5level %logger{36} [seq=%sn, traceId=%X{traceId}, spanId=%X{spanId}, correlationId=%X{correlationId}] - %msg%n</Property>
     </Properties>
 
     <Appenders>
-        <!-- Synchronous Console Appender -->
+        <!-- Synchronous Console Appender: Direct, blocking write to stdout. -->
         <Console name="Console" target="SYSTEM_OUT">
             <PatternLayout pattern="${LOG_PATTERN}"/>
         </Console>
 
         <!-- 
              ASYNC WRAPPER: 
-             Routes logs to the console using a background thread.
-             We use this for INFO, WARN, and DEBUG levels to maximize throughput.
+             Buffers logs and writes them using a low-latency background thread.
+             bufferSize="1024": Size of the internal ring buffer.
         -->
         <Async name="AsyncConsole" bufferSize="1024">
             <AppenderRef ref="Console"/>
             <!-- 
-                 CRITICAL: Deny ERROR level logs in the async appender. 
-                 This ensures errors are NOT queued and instead follow the 
-                 synchronous path defined in the Loggers section.
+                 TUTORIAL — Defensive Logging:
+                 We DENY 'ERROR' level logs in the Async appender. 
+                 Why? Because in a "JVM Out of Memory" or "Panic" scenario, 
+                 the async background thread might be killed before it flushes 
+                 the buffer. We want ERRORs to bypass the buffer and go 
+                 directly to the synchronous 'Console' appender.
             -->
             <ThresholdFilter level="ERROR" onMatch="DENY" onMismatch="NEUTRAL"/>
         </Async>
     </Appenders>
 
     <Loggers>
-        <!-- Default Root Logger -->
+        <!-- Root Logger: The catch-all for every library in the classpath. -->
         <Root level="INFO">
-            <!-- 
-                 Route to the Async appender for standard logs.
-                 The AsyncConsole appender filters out ERRORs.
-            -->
+            <!-- 1. Send all non-error logs to the background thread (High Throughput). -->
             <AppenderRef ref="AsyncConsole"/>
             
-            <!-- 
-                 Route ERROR logs DIRECTLY to the synchronous Console appender.
-                 The calling thread will wait for the write to finish, 
-                 ensuring errors are captured even during a crash.
-            -->
+            <!-- 2. Send ERROR logs directly to the blocking console (High Durability). -->
             <AppenderRef ref="Console" level="ERROR"/>
         </Root>
 
-        <!-- Tune noisy 3rd party logs -->
+        <!-- 
+             TUTORIAL — Logger Tuning:
+             Libraries like Spring and Kafka are very chatty. We isolate them 
+             to avoid "Log Spam" which increases cloud ingestion costs and 
+             makes finding actual business errors difficult.
+             additivity="false": Prevents the log from being duplicated in the Root logger.
+        -->
         <Logger name="org.springframework.kafka" level="INFO" additivity="false">
              <AppenderRef ref="AsyncConsole"/>
              <AppenderRef ref="Console" level="ERROR"/>
         </Logger>
+        
         <Logger name="org.apache.kafka" level="WARN" additivity="false">
+             <AppenderRef ref="AsyncConsole"/>
+             <AppenderRef ref="Console" level="ERROR"/>
+        </Logger>
+
+        <Logger name="com.example.springkafkapoc" level="DEBUG" additivity="false">
              <AppenderRef ref="AsyncConsole"/>
              <AppenderRef ref="Console" level="ERROR"/>
         </Logger>

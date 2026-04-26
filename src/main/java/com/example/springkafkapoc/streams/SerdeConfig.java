@@ -16,9 +16,9 @@ import org.springframework.stereotype.Component;
  *
  * <p><b>TUTORIAL — Why does SerDe matter so much?</b><br>
  * Every record that flows through Kafka Streams must be serialized (Java → bytes) when written to
- * state stores or changelog topics, and deserialized (bytes → Java) on read. In a system
- * processing 50k+ events/second, the CPU cost of serialization dominates. Choosing the right
- * serialization format is a critical performance decision.
+ * state stores or changelog topics, and deserialized (bytes → Java) on read. In a system processing
+ * 50k+ events/second, the CPU cost of serialization dominates. Choosing the right serialization
+ * format is a critical performance decision.
  *
  * <p><b>Two Serdes configured here:</b>
  *
@@ -26,17 +26,17 @@ import org.springframework.stereotype.Component;
  *   <li><b>Avro (SpecificAvroSerde):</b> Used for {@link TransactionEvent}. Avro provides compact
  *       binary encoding and schema validation via the Schema Registry. The serialized payload is
  *       significantly smaller than JSON (typically 3–5× smaller), reducing network and disk I/O.
- *   <li><b>Optimized BigDecimal Serde (scaled long):</b> Standard Java serialization for
- *       {@link BigDecimal} uses variable-length strings ({@code "123.4500"}). We instead scale to
- *       4 decimal places and store as a fixed 8-byte long ({@code 1234500}). This reduces the
- *       memory footprint in RocksDB state stores by over 60% and eliminates GC pressure from
- *       string allocation.
+ *   <li><b>Optimized BigDecimal Serde (scaled long):</b> Standard Java serialization for {@link
+ *       BigDecimal} uses variable-length strings ({@code "123.4500"}). We instead scale to 4
+ *       decimal places and store as a fixed 8-byte long ({@code 1234500}). This reduces the memory
+ *       footprint in RocksDB state stores by over 60% and eliminates GC pressure from string
+ *       allocation.
  * </ul>
  *
  * <p><b>PRO TIP — Schema Registry URL:</b><br>
- * The Schema Registry URL is read from {@code spring.kafka.properties.schema.registry.url}.
- * In local development this defaults to {@code http://localhost:8081}. In production, override
- * with the full GCP-managed Confluent Schema Registry endpoint.
+ * The Schema Registry URL is read from {@code spring.kafka.properties.schema.registry.url}. In
+ * local development this defaults to {@code http://localhost:8081}. In production, override with
+ * the full GCP-managed Confluent Schema Registry endpoint.
  */
 @Component
 public class SerdeConfig {
@@ -52,8 +52,8 @@ public class SerdeConfig {
    *
    * <p><b>TUTORIAL — How SpecificAvroSerde works:</b><br>
    * On first send of a new schema version, the serializer registers the schema with the Schema
-   * Registry and receives a schema ID (an integer). It then writes {@code [magic byte | schema ID
-   * | avro bytes]} into the Kafka message. On the consumer side, the deserializer reads the schema
+   * Registry and receives a schema ID (an integer). It then writes {@code [magic byte | schema ID |
+   * avro bytes]} into the Kafka message. On the consumer side, the deserializer reads the schema
    * ID, fetches the schema from the registry, and decodes the bytes into a {@link TransactionEvent}
    * instance. This is why consumers never crash on schema changes — the schema travels with each
    * message.

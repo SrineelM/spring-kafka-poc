@@ -30,16 +30,17 @@ import org.springframework.stereotype.Service;
  * compliance-sensitive or orchestration-heavy systems:
  *
  * <p><b>Pattern 1 — Manual Header Injection:</b><br>
- * Instead of relying on the {@link com.example.springkafkapoc.observability.KafkaCorrelationIdInterceptor}
- * to inject headers automatically, this service demonstrates building a {@link ProducerRecord}
- * manually and attaching headers directly. This is useful when you need to add headers that
- * are NOT part of your Avro schema — such as source system IDs, priority flags, or routing
- * hints that infrastructure components can read without deserializing the Avro payload.
+ * Instead of relying on the {@link
+ * com.example.springkafkapoc.observability.KafkaCorrelationIdInterceptor} to inject headers
+ * automatically, this service demonstrates building a {@link ProducerRecord} manually and attaching
+ * headers directly. This is useful when you need to add headers that are NOT part of your Avro
+ * schema — such as source system IDs, priority flags, or routing hints that infrastructure
+ * components can read without deserializing the Avro payload.
  *
  * <p><b>WHY headers instead of schema fields?</b><br>
  * Headers are metadata — they travel alongside the payload but are not part of it. A router or
- * proxy can read headers without knowing the Avro schema. Adding these fields to the schema
- * would bloat the business contract with infrastructure concerns.
+ * proxy can read headers without knowing the Avro schema. Adding these fields to the schema would
+ * bloat the business contract with infrastructure concerns.
  *
  * <p><b>Pattern 2 — Request-Reply (Kafka as RPC):</b><br>
  * {@link ReplyingKafkaTemplate} implements a synchronous request-reply over Kafka: the producer
@@ -74,16 +75,16 @@ public class KafkaHeadersProducerService {
    * Publishes a transaction event with manually injected Kafka headers.
    *
    * <p><b>TUTORIAL — ProducerRecord vs. KafkaTemplate.send(topic, key, value):</b><br>
-   * {@code KafkaTemplate.send(topic, key, value)} is the high-level convenience API — it builds
-   * the {@code ProducerRecord} for you. But it doesn't expose headers. To add headers, you must
-   * build the {@link ProducerRecord} yourself and use {@code kafkaTemplate.send(record)}.
+   * {@code KafkaTemplate.send(topic, key, value)} is the high-level convenience API — it builds the
+   * {@code ProducerRecord} for you. But it doesn't expose headers. To add headers, you must build
+   * the {@link ProducerRecord} yourself and use {@code kafkaTemplate.send(record)}.
    *
    * <p><b>Headers in Avro:</b><br>
-   * Headers are NOT part of the Avro schema — they exist in the Kafka transport layer. This
-   * means they are NOT validated by the Schema Registry. Be careful not to rely on header values
-   * for business logic; use them only for infrastructure routing and observability.
+   * Headers are NOT part of the Avro schema — they exist in the Kafka transport layer. This means
+   * they are NOT validated by the Schema Registry. Be careful not to rely on header values for
+   * business logic; use them only for infrastructure routing and observability.
    *
-   * @param amount    the transaction amount
+   * @param amount the transaction amount
    * @param accountId the account identifier
    * @return a future that completes with the Kafka {@link SendResult}
    */
@@ -115,16 +116,20 @@ public class KafkaHeadersProducerService {
     // Step 3: Inject the Correlation ID header if one exists.
     // Headers must be UTF-8 encoded bytes — Kafka stores header values as raw byte arrays.
     if (correlationId != null) {
-      record.headers()
-          .add(new RecordHeader(
-              HEADER_CORRELATION_ID, correlationId.getBytes(StandardCharsets.UTF_8)));
+      record
+          .headers()
+          .add(
+              new RecordHeader(
+                  HEADER_CORRELATION_ID, correlationId.getBytes(StandardCharsets.UTF_8)));
     }
 
     // Step 4: Always inject the source system header so downstream consumers know the origin.
     // Consumers can read this without deserializing the Avro payload (useful for routers/proxies).
-    record.headers()
-        .add(new RecordHeader(
-            HEADER_SOURCE_SYSTEM, SOURCE_SYSTEM_NAME.getBytes(StandardCharsets.UTF_8)));
+    record
+        .headers()
+        .add(
+            new RecordHeader(
+                HEADER_SOURCE_SYSTEM, SOURCE_SYSTEM_NAME.getBytes(StandardCharsets.UTF_8)));
 
     log.info("Sending record with manual headers: transactionId={}", transactionId);
     return kafkaTemplate.send(record);
@@ -135,18 +140,19 @@ public class KafkaHeadersProducerService {
    *
    * <p><b>TUTORIAL — Request-Reply internals:</b><br>
    * {@link ReplyingKafkaTemplate} works as follows:
+   *
    * <ol>
    *   <li>Injects a {@code KafkaHeaders.REPLY_TOPIC} header into the outgoing message.
    *   <li>Injects a correlation ID header to match the reply to the request.
    *   <li>Publishes the message to the request topic.
-   *   <li>The responding service consumes from the request topic, processes it, and publishes
-   *       a response to the reply topic (using the REPLY_TOPIC header as the destination).
-   *   <li>The template listens on the reply topic and resolves the future when the response
-   *       arrives with a matching correlation ID.
+   *   <li>The responding service consumes from the request topic, processes it, and publishes a
+   *       response to the reply topic (using the REPLY_TOPIC header as the destination).
+   *   <li>The template listens on the reply topic and resolves the future when the response arrives
+   *       with a matching correlation ID.
    * </ol>
    *
-   * <p><b>Thread blocking:</b> {@code replyFuture.get()} blocks the calling thread until the
-   * reply arrives. In a reactive/async context, use {@code replyFuture.thenApply()} instead.
+   * <p><b>Thread blocking:</b> {@code replyFuture.get()} blocks the calling thread until the reply
+   * arrives. In a reactive/async context, use {@code replyFuture.thenApply()} instead.
    *
    * @return the reply payload as a String, or throws if the reply times out
    */

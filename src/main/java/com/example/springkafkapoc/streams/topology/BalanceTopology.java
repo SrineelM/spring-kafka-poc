@@ -25,10 +25,11 @@ import org.springframework.stereotype.Component;
  *
  * <p><b>What this topology does:</b><br>
  * Consumes from the {@link KGroupedStream} (already keyed by accountId from {@link SourceTopology})
- * and maintains a running balance for each account. Every transaction increments the balance by
- * its amount. The updated balance is then published to the {@code account-balances} topic.
+ * and maintains a running balance for each account. Every transaction increments the balance by its
+ * amount. The updated balance is then published to the {@code account-balances} topic.
  *
  * <p><b>Why KTable and not a database?</b>
+ *
  * <ul>
  *   <li>Lookups are sub-millisecond (local RocksDB vs. network round-trip to DB).
  *   <li>State is automatically fault-tolerant via Kafka changelog topics.
@@ -50,8 +51,8 @@ public class BalanceTopology {
   /**
    * Appends the balance aggregation steps to the provided grouped stream.
    *
-   * @param groupedStream a {@link KGroupedStream} already keyed by accountId, provided by
-   *                      {@link SourceTopology}
+   * @param groupedStream a {@link KGroupedStream} already keyed by accountId, provided by {@link
+   *     SourceTopology}
    */
   public void build(KGroupedStream<String, TransactionEvent> groupedStream) {
     // Use the compact scaled-long SerDe for RocksDB storage — saves ~60% state store space
@@ -64,7 +65,7 @@ public class BalanceTopology {
         //          Each arriving transaction adds its amount to the current running total.
         // - Materialized: persists the result to a named RocksDB store for Interactive Queries
         .aggregate(
-            () -> BigDecimal.ZERO,  // Initial value for new keys (first transaction for an account)
+            () -> BigDecimal.ZERO, // Initial value for new keys (first transaction for an account)
             (accountId, event, currentBalance) -> {
               BigDecimal updated = currentBalance.add(event.getAmount());
               log.debug("Balance update: account={}, newTotal={}", accountId, updated);

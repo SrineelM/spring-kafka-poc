@@ -28,22 +28,23 @@ import org.springframework.stereotype.Component;
  *
  * <p><b>TUTORIAL — Role in the pipeline:</b><br>
  * This is the first and most critical topology. ALL data flowing into the Kafka Streams engine
- * passes through here. Its job is to: validate, deduplicate, enrich, re-key, and group records —
- * so that downstream topologies receive clean, consistently-keyed data with no duplicates.
+ * passes through here. Its job is to: validate, deduplicate, enrich, re-key, and group records — so
+ * that downstream topologies receive clean, consistently-keyed data with no duplicates.
  *
  * <p><b>Processing steps (in order):</b>
+ *
  * <ol>
  *   <li><b>Read from topic:</b> Consume from {@code processed-transactions} using Avro SerDe.
  *   <li><b>Register state store:</b> Add the RocksDB dedup store to the topology graph.
  *   <li><b>Register GlobalKTable:</b> Populate account reference data for future enrichment joins.
- *   <li><b>Defensive validation:</b> Drop records with null required fields — prevents NPE
- *       cascades deep in stateful processors.
- *   <li><b>Deduplication:</b> Use the {@link DeduplicationProcessor} to drop records with IDs
- *       seen within the last 24h — guards against producer retries and at-least-once redelivery.
+ *   <li><b>Defensive validation:</b> Drop records with null required fields — prevents NPE cascades
+ *       deep in stateful processors.
+ *   <li><b>Deduplication:</b> Use the {@link DeduplicationProcessor} to drop records with IDs seen
+ *       within the last 24h — guards against producer retries and at-least-once redelivery.
  *   <li><b>Minimum amount filter:</b> Drop sub-cent transactions (auth checks / noise).
- *   <li><b>Centralized re-keying:</b> Change the Kafka message key from transactionId to
- *       accountId. This is the most expensive step (triggers a re-partition network shuffle)
- *       — doing it once here saves every downstream topology from having to do it individually.
+ *   <li><b>Centralized re-keying:</b> Change the Kafka message key from transactionId to accountId.
+ *       This is the most expensive step (triggers a re-partition network shuffle) — doing it once
+ *       here saves every downstream topology from having to do it individually.
  *   <li><b>Group:</b> Produce a {@link KGroupedStream} keyed by accountId for aggregations.
  * </ol>
  *
@@ -60,8 +61,8 @@ public class SourceTopology {
   private static final BigDecimal MINIMUM_VALID_AMOUNT = new BigDecimal("0.01");
 
   /**
-   * How long to retain a transaction ID in the deduplication store.
-   * 24h covers all realistic producer retry windows and at-least-once redelivery gaps.
+   * How long to retain a transaction ID in the deduplication store. 24h covers all realistic
+   * producer retry windows and at-least-once redelivery gaps.
    */
   private static final Duration DEDUPLICATION_TTL = Duration.ofHours(24);
 
@@ -69,8 +70,8 @@ public class SourceTopology {
   private final MeterRegistry meterRegistry;
 
   // ─── Metrics ──────────────────────────────────────────────────────────────────────────────────
-  private final Counter malformedCounter;    // Records dropped due to null required fields
-  private final Counter smallAmountCounter;  // Records dropped because amount < $0.01
+  private final Counter malformedCounter; // Records dropped due to null required fields
+  private final Counter smallAmountCounter; // Records dropped because amount < $0.01
 
   @Autowired
   public SourceTopology(SerdeConfig serdeConfig, MeterRegistry meterRegistry) {
@@ -123,8 +124,8 @@ public class SourceTopology {
     builder.addStateStore(
         Stores.keyValueStoreBuilder(
             Stores.persistentKeyValueStore(StoreConstants.TRANSACTION_DEDUPLICATION_STORE),
-            Serdes.String(),  // Key: transactionId (String)
-            Serdes.Long()));  // Value: first-seen timestamp (epoch millis as Long)
+            Serdes.String(), // Key: transactionId (String)
+            Serdes.Long())); // Value: first-seen timestamp (epoch millis as Long)
 
     // ─── Step 2: Register GlobalKTable for Account Enrichment ─────────────────────────────────
     // TUTORIAL: GlobalKTable vs KTable:
@@ -186,14 +187,16 @@ public class SourceTopology {
                   boolean valid = event.getAmount().compareTo(MINIMUM_VALID_AMOUNT) >= 0;
                   if (!valid) {
                     smallAmountCounter.increment();
-                    log.debug("Dropping sub-threshold amount: id={}, amount={}", id, event.getAmount());
+                    log.debug(
+                        "Dropping sub-threshold amount: id={}, amount={}", id, event.getAmount());
                   }
                   return valid;
                 })
 
             // ─── Step 7: Centralized Re-keying by AccountId ──────────────────────────────────
             // TUTORIAL — Why re-key here?
-            // Kafka partitions records by their key using a hash. The original key is transactionId.
+            // Kafka partitions records by their key using a hash. The original key is
+            // transactionId.
             // Aggregations (balance, metrics, sessions) need records grouped by accountId.
             // selectKey() changes the key and triggers a repartition (an internal shuffle over
             // the network to ensure all records for the same accountId go to the same partition).
@@ -208,7 +211,8 @@ public class SourceTopology {
         keyedStream.groupByKey(Grouped.with(Serdes.String(), txnSerde));
 
     return SourceContext.builder()
-        .keyedStream(keyedStream)   // For downstream joins (FraudTopology) and routing (RoutingTopology)
+        .keyedStream(
+            keyedStream) // For downstream joins (FraudTopology) and routing (RoutingTopology)
         .groupedStream(groupedStream) // For downstream aggregations (Balance, Metrics, Session)
         .build();
   }

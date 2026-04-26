@@ -23,19 +23,20 @@ import org.springframework.stereotype.Service;
  * database required for real-time lookups.
  *
  * <p><b>Why does this matter?</b><br>
- * For real-time dashboards (e.g., "What is this account's balance RIGHT NOW?"), a database write
- * + database read introduces latency and complexity. With IQ, the answer is already in RocksDB
- * — local to the stream thread — and can be read in microseconds.
+ * For real-time dashboards (e.g., "What is this account's balance RIGHT NOW?"), a database write +
+ * database read introduces latency and complexity. With IQ, the answer is already in RocksDB —
+ * local to the stream thread — and can be read in microseconds.
  *
  * <p><b>TUTORIAL — Multi-Node Cluster Consideration (IMPORTANT):</b><br>
  * State stores are <em>local</em> to the Kafka Streams instance that currently owns the partition
- * for a given key. In a multi-pod Kubernetes deployment, you CANNOT simply query any pod for
- * any key — you must route the query to the pod that owns the partition.
+ * for a given key. In a multi-pod Kubernetes deployment, you CANNOT simply query any pod for any
+ * key — you must route the query to the pod that owns the partition.
  *
  * <p>The correct cluster-aware approach:
+ *
  * <ol>
- *   <li>Call {@code KafkaStreams.queryMetadataForKey(storeName, key, keySerializer)} to find
- *       which host+port owns the partition for that key.
+ *   <li>Call {@code KafkaStreams.queryMetadataForKey(storeName, key, keySerializer)} to find which
+ *       host+port owns the partition for that key.
  *   <li>If it's this instance → query locally.
  *   <li>If it's another instance → forward the HTTP request to that pod via RPC (e.g., REST or
  *       gRPC). That pod then performs the local query and returns the result.
@@ -56,14 +57,14 @@ public class AnalyticsQueryService {
    * Retrieves the 24-hour running total for a given account from the window state store.
    *
    * <p><b>TUTORIAL — Reading a Window Store:</b><br>
-   * Window stores are indexed by (key, time range). We fetch all windows for the accountId
-   * over the last 24 hours and return the latest (most up-to-date) total. For a 24h tumbling
-   * window, there should typically be only ONE active window at a time — but we iterate for
-   * safety in case the window boundaries cause edge cases.
+   * Window stores are indexed by (key, time range). We fetch all windows for the accountId over the
+   * last 24 hours and return the latest (most up-to-date) total. For a 24h tumbling window, there
+   * should typically be only ONE active window at a time — but we iterate for safety in case the
+   * window boundaries cause edge cases.
    *
    * @param accountId the account to query
-   * @return the 24h total amount, or {@link BigDecimal#ZERO} if the store is unavailable or
-   *         no data exists for this account
+   * @return the 24h total amount, or {@link BigDecimal#ZERO} if the store is unavailable or no data
+   *     exists for this account
    */
   public BigDecimal getDailyAccountTotal(String accountId) {
     log.debug("Interactive Query: 24h total for accountId={}", accountId);
@@ -84,7 +85,8 @@ public class AnalyticsQueryService {
         streams.store(
             StoreQueryParameters.fromNameAndType(
                 StoreConstants.DAILY_ACCOUNT_AGGREGATES_STORE,
-                QueryableStoreTypes.windowStore())); // Must match the store type used in MetricsTopology
+                QueryableStoreTypes
+                    .windowStore())); // Must match the store type used in MetricsTopology
 
     // Step 3: Fetch all windows for this accountId over the entire epoch (all time)
     // We use epoch 0 to Instant.now() to ensure we capture any active window regardless
