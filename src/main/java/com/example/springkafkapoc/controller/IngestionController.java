@@ -30,6 +30,10 @@ import org.springframework.web.bind.annotation.*;
  *
  * <p>This non-blocking approach allows one small server to handle thousands of concurrent ingestion
  * requests without thread starvation.
+ *
+ * <p><b>PRO TIP:</b> In high-throughput systems, always favor {@link CompletableFuture} or Reactive
+ * types (Mono/Flux). Blocking an HTTP thread waiting for a database or broker to respond is the #1
+ * cause of cascading failures in microservices.
  */
 @Slf4j
 @RestController
@@ -70,6 +74,9 @@ public class IngestionController {
    * <p>WHY VALIDATION: We validate here at the boundary. If we accept a null amount, the Avro
    * serializer would later fail with a NullPointerException, causing a silent failure or a
    * hard-to-debug error deep in the pipeline. Failing fast is always better.
+   *
+   * <p><b>PRO TIP:</b> Bean Validation (@NotNull, @Positive) combined with {@code record} classes
+   * is the modern way to ensure data integrity at the edge of your network.
    */
   public record IngestionRequest(
       @NotNull @Positive BigDecimal amount, @NotBlank @Size(max = 128) String accountId) {}

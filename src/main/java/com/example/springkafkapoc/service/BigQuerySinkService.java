@@ -103,11 +103,14 @@ public class BigQuerySinkService {
           // --- Simulated Sink Operations ---
           if (Math.random() > 0.90) { // 10% simulated failure
             errorCounter.increment();
+            // PRO TIP: Throwing an exception here triggers the Circuit Breaker.
             throw new RuntimeException("BigQuery API Timeout");
           }
 
           // If we previously paused the consumer and it's working now, resume it.
           if (paused.compareAndSet(true, false)) {
+            // PRO TIP: This is "Self-Healing". Once the sink is healthy, 
+            // we resume the flow of data automatically.
             resumeConsumer();
           }
 
@@ -133,8 +136,12 @@ public class BigQuerySinkService {
 
     if (paused.compareAndSet(false, true)) {
       pausedGauge.set(1);
+      // We reach into the Spring Kafka registry to find our container
       var container = registry.getListenerContainer(LISTENER_ID);
       if (container != null && container.isRunning()) {
+        // PRO TIP: Pausing the container is better than throwing exceptions.
+        // It prevents "Retry Storms" where the consumer keeps trying and failing,
+        // burning CPU and network for nothing.
         container.pause();
         log.warn("Kafka listener '{}' paused automatically.", LISTENER_ID);
       }

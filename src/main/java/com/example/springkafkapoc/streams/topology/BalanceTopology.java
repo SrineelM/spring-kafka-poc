@@ -47,6 +47,7 @@ public class BalanceTopology {
         .aggregate(
             () -> BigDecimal.ZERO,
             (accountId, event, currentBalance) -> {
+              // Standard addition for running totals
               BigDecimal updated = currentBalance.add(event.getAmount());
               if (log.isDebugEnabled()) {
                 log.debug("Balance update: account={}, newBalance={}", accountId, updated);
@@ -57,6 +58,7 @@ public class BalanceTopology {
                     StoreConstants.ACCOUNT_BALANCE_STORE)
                 .withKeySerde(Serdes.String())
                 .withValueSerde(decimalSerde))
+        // Convert the KTable back to a Stream so we can publish the updates to a topic
         .toStream()
         .to(TopicConstants.ACCOUNT_BALANCES, Produced.with(Serdes.String(), decimalSerde));
   }

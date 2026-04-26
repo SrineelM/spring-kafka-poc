@@ -12,28 +12,46 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * <b>Cloud Spanner Persistence Adapter</b>
+ * <b>Cloud Spanner Persistence Adapter — Global Production Backend</b>
  *
- * <p><b>TUTORIAL:</b> This implementation is an <b>Adapter</b> for the {@link
- * TransactionPersistencePort} specifically for Google Cloud Spanner.
+ * <p><b>TUTORIAL — What is Cloud Spanner?</b><br>
+ * Google Cloud Spanner is a globally distributed, horizontally scalable, strongly consistent
+ * relational database. It's the only database that simultaneously provides ACID transactions,
+ * SQL semantics, and horizontal scaling across global regions — making it ideal for financial
+ * workloads where data consistency and availability are non-negotiable.
  *
- * <p><b>Conditional Loading:</b> Notice the {@code @ConditionalOnProperty}. This service only
- * exists in the Spring application context if we are in a production-like environment where Spanner
- * is enabled.
+ * <p><b>{@code @ConditionalOnProperty} — Conditional Bean Loading:</b><br>
+ * This adapter only registers as a Spring bean when {@code app.database.spanner-enabled=true}.
+ * When that property is absent or false (e.g., local development), this class is completely
+ * invisible to Spring — no bean, no database connections, no startup cost.
  *
- * <p><b>Distributed Consistency:</b> Spanner provides external consistency and high-availability.
- * By using it as our persistence layer, we ensure that our "Transaction" and "Outbox" updates are
- * committed across global regions with strong ACID guarantees.
+ * <p>This is a production-grade alternative to {@code @Profile("production")}: properties are
+ * more flexible than profiles because they can be set per-environment via ConfigMaps, Secrets,
+ * or environment variables without changing the deployment descriptor.
+ *
+ * <p><b>Distributed Consistency:</b><br>
+ * Spanner provides external consistency — stronger than serializable isolation. This means that
+ * even across geographically distributed nodes, reads always reflect the latest committed write.
+ * For a payments system processing transactions across time zones, this is essential.
  */
 @Slf4j
-@Service("spannerTransactionService")
+@Service("spannerTransactionService")  // Named bean for @Qualifier-based injection
 @RequiredArgsConstructor
 @ConditionalOnProperty(name = "app.database.spanner-enabled", havingValue = "true")
 public class SpannerTransactionService implements TransactionPersistencePort {
 
+  // The same JPA repository used by H2 — Spring Data abstracts the underlying dialect
+  // The Spanner JDBC driver translates standard SQL to Spanner's internal query engine
   private final TransactionRepository repository;
-  private final TransactionMapper mapper;
+  private final TransactionMapper mapper; // MapStruct converter — same as H2 adapter
 
+  /**
+   * Persists a transaction to Cloud Spanner.
+   *
+   * <p>The implementation is intentionally identical to the H2 adapter — this is the power of
+   * the adapter pattern. The only difference is the database dialect and connection pool,
+   * configured in the Spring datasource properties for the Spanner profile.
+   */
   @Override
   @Transactional
   public Transaction save(Transaction transaction) {
@@ -43,6 +61,14 @@ public class SpannerTransactionService implements TransactionPersistencePort {
     return mapper.toDomain(saved);
   }
 
+  /**
+   * Idempotency lookup against Spanner.
+   *
+   * <p><b>PRO TIP — Spanner Read Performance:</b><br>
+   * Spanner supports "stale reads" (reading data that's slightly behind current time) which are
+   * significantly cheaper than strongly-consistent reads. For idempotency checks where eventual
+   * consistency is acceptable, consider using a stale read to reduce latency and cost.
+   */
   @Override
   public Optional<Transaction> findById(String transactionId) {
     return repository.findById(transactionId).map(mapper::toDomain);
@@ -50,6 +76,6 @@ public class SpannerTransactionService implements TransactionPersistencePort {
 
   @Override
   public String getStoreName() {
-    return "Google Cloud Spanner";
+    return "Google Cloud Spanner"; // Shown in audit logs and DynamicPersistenceRouter logs
   }
 }

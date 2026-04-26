@@ -63,11 +63,16 @@ public class DeduplicationProcessor<K, V, ID> extends ContextualProcessor<K, V, 
         org.apache.kafka.streams.processor.PunctuationType.WALL_CLOCK_TIME,
         timestamp -> {
           log.debug("Running deduplication store cleanup for store: {}", storeName);
+          // We iterate over the entire store to find expired entries.
+          // PRO TIP: In a high-volume system, you might use a separate "Cleanup" topic
+          // or a more efficient TTL-supporting store (like a custom StateStore implementation)
+          // to avoid full-scans.
           try (var iterator = store.all()) {
             long cutoff = timestamp - ttl.toMillis();
             while (iterator.hasNext()) {
               var entry = iterator.next();
               if (entry.value < cutoff) {
+                // Remove the expired transaction ID to free up space
                 store.delete(entry.key);
               }
             }

@@ -18,10 +18,10 @@ spring:
     # If SPRING_PROFILES_ACTIVE is set in the environment, it uses that; otherwise 'local'
     active: ${SPRING_PROFILES_ACTIVE:local}
 
-  jpa:
-    hibernate:
       # 'validate' ensures that the entity structure matches the database schema at startup.
       # It doesn't write to the DB, making it a safe default for production.
+      # PRO TIP: For local development, 'update' can be used to auto-generate tables, 
+      # but 'validate' is mandatory for stable production environments to avoid schema corruption.
       ddl-auto: validate
     # Disables printing SQL to the console to prevent log clutter
     show-sql: false
@@ -39,7 +39,9 @@ spring:
       # 'all' ensures the lead broker waits for all in-sync replicas to acknowledge the record.
       # This provides the highest durability guarantee.
       acks: all
-      # Overrides the default retry behavior in case of transient failures
+      # Overrides the default retry behavior in case of transient failures.
+      # PRO TIP: Higher retry counts combined with idempotence (see below) provide 
+      # "at-least-once" delivery without the risk of duplicate writes.
       retries: 10
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: io.confluent.kafka.serializers.KafkaAvroSerializer
@@ -57,12 +59,23 @@ spring:
       value-deserializer: io.confluent.kafka.serializers.KafkaAvroDeserializer
       properties:
         # Ensures that a consumer will only read messages from transactions that were successfully committed.
-        # This prevents reading temporary/aborted data.
+        # This prevents reading temporary/aborted data (Dirty Reads).
+        # PRO TIP: This is the consumer-side of Exactly-Once Semantics (EOS).
         isolation.level: read_committed
         # Tells the Avro deserializer to generate specific Avro classes instead of GenericRecords
         specific.avro.reader: "true"
         # The maximum number of records returned in a single call to poll()
         max.poll.records: 500
+
+        # TUTORIAL: Rebalance Handling & Stability
+        # These properties prevent the broker from mistakenly thinking our consumer is dead
+        # if processing a large batch takes a long time.
+        # Max time allowed for processing a poll before the consumer is considered failed and rebalanced.
+        max.poll.interval.ms: 300000 
+        # How long the coordinator waits without a heartbeat before triggering a rebalance.
+        session.timeout.ms: 45000
+        # How frequently the background thread sends heartbeats to the coordinator.
+        heartbeat.interval.ms: 15000
 
     listener:
       # Manual Immediate Acknowledgment ensures Spring waits for the user to call acknowledgment.acknowledge()
@@ -81,6 +94,8 @@ spring:
       application-id: spring-kafka-poc-streams
       properties:
         # Strongest processing guarantee (EOS). Guarantees every input record is processed exactly once.
+        # PRO TIP: exactly_once_v2 is more efficient than the original version (v1) 
+        # as it uses a single transactional producer for all partitions.
         processing.guarantee: exactly_once_v2
 
 # -------------------------------------------------------------------------

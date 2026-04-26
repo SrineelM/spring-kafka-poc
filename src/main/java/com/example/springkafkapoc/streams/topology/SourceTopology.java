@@ -147,6 +147,9 @@ public class SourceTopology {
                   return valid;
                 })
             // 4. Centralized Re-keying
+            // PRO TIP: Re-keying (selectKey) is expensive because it triggers a RE-PARTITION.
+            // By doing it once here at the source, all downstream topologies can share the
+            // re-keyed stream without each having to trigger their own expensive network shuffle.
             .selectKey((txnId, event) -> event.getAccountId().toString());
 
     KGroupedStream<String, TransactionEvent> groupedStream =

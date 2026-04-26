@@ -7,51 +7,69 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
 /**
- * <b>Dynamic Storage Router</b>
+ * <b>Dynamic Persistence Router — Polymorphic Storage Selection</b>
  *
- * <p><b>TUTORIAL:</b> This service implements the <b>Polymorphic Persistence / Service Selection
- * Pattern</b>. In a multi-cloud or hybrid environment, you often need to switch storage engines
- * (e.g., H2 for local, Spanner for GCP, PostgreSQL for on-prem) without rewriting your business
- * logic.
+ * <p><b>TUTORIAL — The Strategy Pattern applied to persistence:</b><br>
+ * Instead of scattering {@code if (spannerEnabled)} checks across every service, we centralize
+ * all storage selection logic here. This class implements the same {@link TransactionPersistencePort}
+ * interface as H2, Spanner, and AlloyDB — but its implementation delegates to whichever concrete
+ * provider is most appropriate at runtime.
  *
- * <p><b>How it works:</b>
+ * <p><b>How Spring wires this:</b><br>
+ * When Spring sees a field of type {@code List<TransactionPersistencePort>}, it automatically
+ * injects ALL beans that implement that interface. This router receives the full list and
+ * picks the right one at runtime based on name matching (Spanner preferred over AlloyDB over H2).
  *
- * <ul>
- *   <li>It is marked {@link @Primary} so Spring prioritizes this bean during injection.
- *   <li>It receives a {@code List<TransactionPersistencePort>} containing ALL active
- *       implementations.
- *   <li>The {@code getActiveProvider()} method decides which concrete service to use at runtime
- *       based on environment availability or feature flags.
- * </ul>
+ * <p><b>WHY {@code @Primary}?</b><br>
+ * Without {@code @Primary}, Spring wouldn't know which {@code TransactionPersistencePort} to
+ * inject when a service declares a single dependency on the interface — it would see multiple
+ * candidates and throw an exception. {@code @Primary} tells Spring "when in doubt, use me."
  *
- * <p><b>WHY THIS ARCHITECTURE?</b> It achieves <b>Strict Decoupling</b>. Your Kafka processors just
- * say "save this", and they don't care if it goes to an in-memory database or a
- * globally-distributed cloud database. This makes testing and cloud-migration trivial.
+ * <p><b>WHY this architecture?</b><br>
+ * Your Kafka processors say {@code persistencePort.save(tx)} without knowing or caring whether
+ * data goes to an in-memory H2 test database or a globally-distributed Cloud Spanner cluster.
+ * Swapping environments (local → staging → prod) requires zero code changes — only a property
+ * flag ({@code app.database.spanner-enabled=true}).
  */
 @Slf4j
 @Service
-@Primary
+@Primary          // This bean wins in any single-bean injection site of TransactionPersistencePort
 @RequiredArgsConstructor
 public class DynamicPersistenceRouter implements TransactionPersistencePort {
 
   /**
-   * Spring automatically injects ALL bean implementations of the interface into this list. We'll
-   * have [H2TransactionService, SpannerTransactionService, AlloyDbTransactionService] depending on
-   * which profiles are active.
+   * Spring injects ALL active {@link TransactionPersistencePort} beans into this list.
+   *
+   * <p>Inactive beans (e.g., {@code SpannerTransactionService} guarded by
+   * {@code @ConditionalOnProperty}) are excluded automatically — they simply won't be in the list.
+   * So in a local development environment, this list contains only {@code H2TransactionService}.
    */
   private final List<TransactionPersistencePort> providers;
 
   /**
-   * Chooses the "safest" or most appropriate storage engine at runtime.
+   * Selects the most capable available storage engine.
    *
-   * <p>Tutorial Tip: In a real system, you might have a health check or a fallback chain here.
+   * <p><b>Priority order:</b>
+   * <ol>
+   *   <li>Cloud Spanner — globally distributed, strongly consistent, preferred for production.
+   *   <li>AlloyDB — high-performance PostgreSQL-compatible, preferred for APAC/regional prod.
+   *   <li>H2 — in-memory, dev/test fallback, always available.
+   * </ol>
+   *
+   * <p><b>PRO TIP:</b> In a real system you could replace this simple name-matching logic with
+   * a health-check driven fallback chain: try Spanner, if it's down fall back to AlloyDB, etc.
+   *
+   * @throws IllegalStateException if no provider is configured — this should never happen
+   *                               because H2 is always on the classpath
    */
   private TransactionPersistencePort getActiveProvider() {
-    // Priority: 1. Spanner, 2. AlloyDB, 3. H2 (Fallback)
+    // Prefer Spanner: highest consistency for production workloads
     return providers.stream()
         .filter(p -> p.getStoreName().contains("Spanner"))
         .findFirst()
+        // Fall back to AlloyDB (PostgreSQL-compatible, regional GCP option)
         .or(() -> providers.stream().filter(p -> p.getStoreName().contains("AlloyDB")).findFirst())
+        // Final fallback: H2 in-memory — always present for local dev/test
         .orElse(
             providers.stream()
                 .filter(p -> p.getStoreName().contains("H2"))
@@ -64,18 +82,21 @@ public class DynamicPersistenceRouter implements TransactionPersistencePort {
   public com.example.springkafkapoc.domain.model.Transaction save(
       com.example.springkafkapoc.domain.model.Transaction transaction) {
     TransactionPersistencePort active = getActiveProvider();
-    log.trace("Routing save to: {}", active.getStoreName());
+    // Trace-level log — cheap to produce and useful when debugging provider selection
+    log.trace("Routing save → {}", active.getStoreName());
     return active.save(transaction);
   }
 
   @Override
   public java.util.Optional<com.example.springkafkapoc.domain.model.Transaction> findById(
       String transactionId) {
+    // findById is used for idempotency checks — must always go to the same store as save()
     return getActiveProvider().findById(transactionId);
   }
 
   @Override
   public String getStoreName() {
+    // Returns the active provider's name — surfaced in audit logs and health endpoints
     return getActiveProvider().getStoreName();
   }
 }

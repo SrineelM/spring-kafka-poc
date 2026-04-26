@@ -12,21 +12,29 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Profile;
+import org.springframework.kafka.annotation.DltHandler;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
+import org.springframework.kafka.support.KafkaHeaders;
+import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * <b>Batch Transaction Event Processor</b>
+ * <b>Transaction Event Processor (Batch Mode)</b>
  *
- * <p>TUTORIAL: This service demonstrates <b>Batched Consumption</b>. Instead of receiving one
- * {@code ConsumerRecord} at a time, it receives a {@code List<ConsumerRecord>}. We can then process
- * and persist all records in a single Database transaction, which drastically improves throughput
- * by reducing network round-trips to the database.
+ * <p><b>TUTORIAL — Batch vs Single mode:</b><br>
+ * Single mode: 1 message → 1 DB round-trip → 1 commit. Simple but slow under load.<br>
+ * Batch mode: N messages → 1 DB round-trip → 1 commit. Far more efficient, but requires
+ * per-record idempotency checks because the entire batch is redelivered on retry.
  *
- * <p>This is activated only when the 'batch' profile is running.
+ * <p><b>Speed vs. Risk trade-off:</b><br>
+ * Batching is 10×–100× faster, but if ONE record fails, Kafka redelivers ALL records in the batch.
+ * Records already successfully inserted will be redelivered too — making idempotency mandatory.
+ *
+ * <p><b>Activation:</b> Only active when {@code SPRING_PROFILES_ACTIVE=batch}.
+ * Mutually exclusive with {@code TransactionEventSingleProcessor}.
  */
 @Slf4j
 @Service
@@ -39,7 +47,7 @@ public class TransactionEventBatchProcessor {
 
   private final Timer batchTimer;
   private final Counter processedCounter;
-  private final Counter skippedCounter;
+  private final Counter skippedCounter;  // Duplicates skipped by idempotency check
   private final Counter dltCounter;
 
   @Autowired
@@ -53,88 +61,114 @@ public class TransactionEventBatchProcessor {
 
     this.batchTimer =
         Timer.builder("transaction.batch.processing.time")
-            .description("Time taken to process a batch of transactions")
+            .description("End-to-end time for one Kafka batch")
             .register(meterRegistry);
     this.processedCounter =
         Counter.builder("transaction.batch.processed.count")
-            .description("Total number of transactions processed in batches")
+            .description("Records successfully processed in batch mode")
             .register(meterRegistry);
     this.skippedCounter =
         Counter.builder("transaction.batch.skipped.count")
-            .description("Number of duplicate transactions skipped in batches")
+            .description("Duplicate records skipped in batch mode")
             .register(meterRegistry);
     this.dltCounter =
         Counter.builder("transaction.batch.dlt.count")
-            .description("Number of batch records sent to DLT")
+            .description("Batch records routed to DLT")
             .register(meterRegistry);
   }
 
+  /**
+   * Processes a batch of Kafka records in a single DB transaction.
+   *
+   * <p><b>TUTORIAL — What happens here:</b>
+   * <ol>
+   *   <li>Kafka delivers a list of up to 500 records (controlled by {@code max.poll.records}).
+   *   <li>A {@link TransactionTemplate} opens ONE DB transaction for the entire batch.
+   *   <li>For each record: check idempotency, then insert. Skips already-processed records.
+   *   <li>All inserts commit in one round-trip.
+   *   <li>Acknowledge ALL offsets after DB commit.
+   * </ol>
+   *
+   * <p><b>Backpressure signal:</b> If the batch is consistently full (500 records), the consumer
+   * is lagging behind the producer — a clear signal to scale out consumer pods.
+   */
   @KafkaListener(
       topics = TopicConstants.RAW_TRANSACTIONS,
       groupId = "transaction-batch-group",
       containerFactory = "batchKafkaListenerContainerFactory")
   public void processTransactionBatch(
       List<ConsumerRecord<String, TransactionEvent>> records, Acknowledgment ack) {
-    log.info("Processing batch of {} transaction records", records.size());
 
+    // Backpressure/Lag Alert: full batch = consumer may be falling behind
+    if (records.size() >= 500) {
+      log.warn("LAG ALERT: maximum batch size ({}) — consumer may be lagging!", records.size());
+    } else {
+      log.info("Processing batch of {} records", records.size());
+    }
+
+    // Wrap entire loop in a timer so Grafana can show batch latency trends
     batchTimer.record(
         () -> {
+          // ONE DB transaction for all N records — this is the throughput advantage of batch mode
           new TransactionTemplate(transactionManager)
               .executeWithoutResult(
                   status -> {
                     for (ConsumerRecord<String, TransactionEvent> record : records) {
                       String transactionId = record.value().getTransactionId().toString();
 
-                      // Idempotency check: Skip records already in the database
+                      // Idempotency Check — CRITICAL in batch mode.
+                      // On retry, ALL records in the batch are redelivered — including those
+                      // that were already inserted in the previous (partial) attempt.
+                      // Without this check, we'd insert them again → double accounting.
                       if (persistencePort.findById(transactionId).isPresent()) {
-                        log.info(
-                            "Batch Idempotency: transactionId={} already processed. Skipping.",
-                            transactionId);
+                        log.info("Batch Idempotency: {} already processed. Skipping.", transactionId);
                         skippedCounter.increment();
-                        continue;
+                        continue; // Skip this record; process the rest of the batch
                       }
 
                       TransactionEvent event = record.value();
+                      // Map Avro event to the persistence-agnostic domain model
                       Transaction transaction =
                           Transaction.builder()
                               .transactionId(transactionId)
                               .accountId(event.getAccountId().toString())
                               .amount(event.getAmount())
                               .timestamp(Instant.ofEpochMilli(event.getTimestamp()))
-                              .status("PROCESSED_BATCH")
-                              .sourcePartition(record.partition())
+                              .status("PROCESSED_BATCH") // Distinguishes batch-mode rows in reporting
+                              .sourcePartition(record.partition()) // Kafka forensics metadata
                               .sourceOffset(record.offset())
                               .build();
 
-                      persistencePort.save(transaction);
+                      persistencePort.save(transaction); // Joins the active TX — no commit yet
                       processedCounter.increment();
                     }
+                    // All records inserted — TransactionTemplate commits here
                   });
         });
 
+    // Acknowledge ALL offsets in the batch after the DB commit succeeds.
+    // If the JVM crashes between DB commit and this ack, the batch is redelivered —
+    // idempotency checks handle that safely (at-least-once guarantee).
     ack.acknowledge();
   }
 
   /**
-   * TUTORIAL: Batch DLT Handler.
+   * Dead Letter Topic handler — called when a record exhausts all batch-split retries.
    *
-   * <p>When a batch fails, Spring Kafka attempts to retry. If retries fail, the individual records
-   * are sent here. We log the failure and audit it for forensics.
+   * <p><b>TUTORIAL:</b> Spring Kafka's error handler splits persistently-failing batches into
+   * individual records and routes each one here after all retries are exhausted. We log it,
+   * increment the metric, and acknowledge — otherwise the DLT consumer loops forever.
    */
-  @org.springframework.kafka.annotation.DltHandler
+  @DltHandler
   public void dlt(
       ConsumerRecord<String, TransactionEvent> record,
-      @org.springframework.messaging.handler.annotation.Header(
-              org.springframework.kafka.support.KafkaHeaders.EXCEPTION_MESSAGE)
-          String exceptionMessage,
+      @Header(KafkaHeaders.EXCEPTION_MESSAGE) String exceptionMessage,
       Acknowledgment ack) {
 
-    log.error(
-        "Batch Record failed and sent to DLT: {}. Reason: {}", record.key(), exceptionMessage);
+    log.error("Batch DLT: key={}, reason={}", record.key(), exceptionMessage);
     dltCounter.increment();
 
-    // In a production batch system, you might want to aggregate these failures
-    // before auditing, but for this PoC, we record each individual failure.
+    // Always ack DLT records to prevent an infinite retry loop on the DLT consumer
     ack.acknowledge();
   }
 }

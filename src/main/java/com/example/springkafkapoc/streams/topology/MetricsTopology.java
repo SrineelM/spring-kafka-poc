@@ -54,6 +54,7 @@ public class MetricsTopology {
                 .withKeySerde(Serdes.String())
                 .withValueSerde(decimalSerde))
         .toStream()
+        // Format the output key to include the window start time for easier visualization
         .map((wk, total) -> new KeyValue<>(wk.key() + "@" + wk.window().start(), total))
         .to(TopicConstants.DAILY_ACCOUNT_METRICS, Produced.with(Serdes.String(), decimalSerde));
 

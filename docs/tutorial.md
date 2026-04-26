@@ -64,12 +64,26 @@ Found in `TransactionEventSingleProcessor`:
 
 **The Why:** This guarantees **Atomic Delivery**. You will never have a situation where data is saved to the database but the event is "lost" before it gets to the next step of the pipeline.
 
-### 🔹 3.2 Declarative, Non-Blocking Retries (`@RetryableTopic`)
-**The Problem:** A transient failure (e.g., a temporary network issue) shouldn't block the world.
-**The Solution:** We use `@RetryableTopic` with **Exponential Backoff**. 
-**How it works:** If `process()` fails, Spring Kafka sends the message to a dedicated retry topic (`raw-transactions-retry-0`). The consumer then waits for the backoff delay before trying again. After all attempts are exhausted, the message is sent to the **Dead Letter Topic (DLT)**.
+### 🔹 3.2 Idempotent Consumers
+**The Pattern:** Defensive duplicate checking before processing. In `TransactionEventSingleProcessor`, we query `transactionPersistencePort.findById()` before doing any work.
+**The Why:** Kafka guarantees *at-least-once* delivery. If a consumer crashes after processing but *before* the offset is committed (or if a batch fails midway), Kafka will redeliver the message. The consumer **must** be idempotent to prevent double-processing.
 
----
+### 🔹 3.3 Declarative, Non-Blocking Retries & DLQ Strategy
+**The Problem:** A transient failure (e.g., a temporary network issue) shouldn't block the world or force a partition rebalance.
+**The Solution:** We use `@RetryableTopic` with **Exponential Backoff**. 
+**How it works:** If `process()` fails, Spring Kafka sends the message to a dedicated retry topic (`raw-transactions-retry-0`). The consumer then waits for the backoff delay before trying again without blocking the main topic. After all attempts are exhausted, the message is sent to the **Dead Letter Topic (DLT)**.
+For batch processing (`TransactionEventBatchProcessor`), Spring Kafka splits failed batches into individual records and routes them to a `@DltHandler` to prevent a single poison pill from stalling the partition.
+
+### 🔹 3.4 Consumer Rebalance Handling & Stability
+Look at `application.yml`:
+*   `max.poll.interval.ms: 300000`
+*   `session.timeout.ms: 45000`
+*   `heartbeat.interval.ms: 15000`
+**The Why:** Long-running batch processes can exceed the default max poll interval, causing the broker to mistakenly assume the consumer has died. This triggers a "Rebalance Storm". By carefully tuning these parameters, we guarantee consumer stability even under heavy load.
+
+### 🔹 3.5 Backpressure & Lag Alerts
+**The Pattern:** Proactive monitoring of consumer backlog and batch sizes.
+**The Why:** If consumers cannot keep up with producers, lag builds up. In our processors, we track `backlogSize` and `records.size()`. If they cross a threshold, we log a **LAG ALERT**. In `BigQuerySinkService`, we go further: if BigQuery fails, we actually **pause** the Kafka listener, enforcing true backpressure to stop the system from drowning in messages it cannot write.
 
 ## 🧠 4. The Analytics Tier (Modular Kafka Streams)
 
@@ -90,7 +104,7 @@ In `SessionTopology`, we use `.suppress(untilWindowCloses(BufferConfig.maxBytes(
 **The Why:** Session windows can be explosive. If millions of users are active, an unbounded buffer will cause an **OutOfMemory (OOM)** crash. Bounding the buffer ensures the system remains stable under extreme load.
 
 ### 🔹 4.4 Interactive Queries (IQ)
-Through `AnalyticsQueryService`, our REST API reaches into the **Kafka Streams State Store** (not a SQL DB) to fetch the current total for an account. 
+Through `AnalyticsQueryService`, our REST API reaches into the **Kafka Streams State Store** (not a SQL DB) to fetch the current total for an account.
 **The Why:** It turns your Kafka Streams application into a real-time, queryable materialized view over your event streams, enabling ultra-low-latency analytics.
 
 ---

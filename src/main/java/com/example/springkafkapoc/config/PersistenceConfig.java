@@ -18,38 +18,55 @@ import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.transaction.PlatformTransactionManager;
 
 /**
- * <b>Persistence Configuration</b>
+ * <b>Persistence Configuration — Transactions, Locking & Resilience</b>
  *
- * <p>This class centralizes all persistence-related beans.
+ * <p>This class centralizes all persistence-layer infrastructure beans. Three concerns live here:
  *
- * <p><b>Distributed Locking:</b> We use {@link JdbcLockRegistry} backed by a database table to
- * ensure that only one instance of the Outbox processor runs at a time for a given aggregate.
+ * <p><b>1. Distributed Locking (JDBC-backed)</b><br>
+ * We use Spring Integration's {@link JdbcLockRegistry} to coordinate which application instance
+ * may poll the Outbox at any given moment. The lock state is stored in the {@code INT_LOCK} table,
+ * so all instances in a cluster share the same view. Without this, two pods would simultaneously
+ * read the same unprocessed outbox records and publish duplicates to Kafka.
  *
- * <p><b>Transaction Management:</b> Standard JPA transaction management for data integrity.
+ * <p><b>2. Transaction Management</b><br>
+ * The standard JPA {@link JpaTransactionManager} is declared here as the {@code @Primary} bean so
+ * every {@code @Transactional} annotation in the codebase uses the correct manager.
  *
- * <p><b>Resilience:</b> Programmatic Circuit Breaker for BigQuery writes to handle outages
- * gracefully.
+ * <p><b>3. Circuit Breaker (Resilience4j)</b><br>
+ * The BigQuery circuit breaker guards the analytics sink. If the external service degrades,
+ * the breaker "opens" and the fallback is invoked — which pauses the Kafka consumer instead of
+ * hammering a broken endpoint.
+ *
+ * <p><b>PRO TIP:</b> Distributed locking is the secret to scaling outbox-processors safely. Without
+ * it, multiple instances would attempt to publish the same record, causing duplicates and race
+ * conditions.
  */
 @Slf4j
 @Configuration
 public class PersistenceConfig {
 
   /**
-   * TUTORIAL: The {@code LockRepository} specifies where lock states are stored. Here, we use the
-   * default Spring Integration behavior which relies on a SQL data source (the 'INT_LOCK' table).
-   * This ensures that locks are distributed across instances.
+   * Configures WHERE lock state is persisted.
+   *
+   * <p><b>TUTORIAL:</b> {@link DefaultLockRepository} creates or uses the {@code INT_LOCK} table.
+   * The TTL (Time-To-Live) ensures locks don't remain held forever if a pod crashes mid-cycle —
+   * another instance can acquire it after the TTL expires.
    */
   @Bean
   public LockRepository lockRepository(DataSource dataSource, AppProperties appProperties) {
     DefaultLockRepository repo = new DefaultLockRepository(dataSource);
+    // Set TTL from config so it's tunable per environment without a code deploy
     repo.setTimeToLive(appProperties.getOutbox().getLockTtlMs());
     return repo;
   }
 
   /**
-   * TUTORIAL: The {@code LockRegistry} exposes the distributed lock API. We use a JDBC-backed
-   * registry to obtain locks that all application nodes respect. This guarantees singleton
-   * execution paths where necessary (like Polling the outbox).
+   * Exposes the distributed lock API to our services.
+   *
+   * <p><b>TUTORIAL:</b> Callers call {@code lockRegistry.obtain("my-key")} to get a {@link
+   * java.util.concurrent.locks.Lock} object. They then call {@code tryLock()} — which is
+   * non-blocking. If the lock is held by another instance, {@code tryLock()} returns {@code false}
+   * immediately; the caller simply skips its work for this cycle.
    */
   @Bean
   public LockRegistry lockRegistry(LockRepository lockRepository) {
@@ -57,9 +74,12 @@ public class PersistenceConfig {
   }
 
   /**
-   * TUTORIAL: Defines the primary Transaction Manager. Required for {@code @Transactional}
-   * annotations. When you save to the DB within a method, this manager wraps the operation in a SQL
-   * transaction, ensuring atomic commits or rollbacks on failure.
+   * Declares the primary JPA transaction manager.
+   *
+   * <p><b>TUTORIAL:</b> Every {@code @Transactional} annotation is backed by a {@link
+   * PlatformTransactionManager}. We explicitly declare it as {@code @Primary} here because the
+   * project also has a Kafka transaction manager on the classpath; Spring needs to know which one
+   * is the default for JPA operations.
    */
   @Bean
   @Primary
@@ -68,23 +88,41 @@ public class PersistenceConfig {
   }
 
   /**
-   * TUTORIAL: Defines a Resilience4j Circuit Breaker. It guards the integration point to BigQuery.
-   * If standard operations fail significantly (e.g. 50% failure rate over a sliding window of 10),
-   * it 'opens' to short-circuit further requests immediately, returning errors without waiting to
-   * fail again.
+   * Programmatic Resilience4j Circuit Breaker for BigQuery.
+   *
+   * <p><b>TUTORIAL — How a Circuit Breaker works:</b>
+   *
+   * <ul>
+   *   <li><b>CLOSED (normal):</b> Requests pass through. Failures are counted.
+   *   <li><b>OPEN (degraded):</b> If the failure rate exceeds the threshold (50% here over a
+   *       sliding window of 10 calls), the breaker opens. Further calls are rejected instantly
+   *       (the fallback method is invoked) without even trying. This protects thread pools.
+   *   <li><b>HALF-OPEN (recovery):</b> After {@code waitDurationInOpenState} (30s here), the
+   *       breaker allows a limited number of test calls through. If they succeed, it closes again.
+   * </ul>
+   *
+   * <p><b>PRO TIP:</b> The state-transition event listener logs every change. Hook this into your
+   * alerting system (e.g., publish to a Slack webhook or increment a Prometheus counter) so
+   * operations are notified the moment a dependency starts misbehaving.
    */
   @Bean
   public CircuitBreaker bigQueryCircuitBreaker(CircuitBreakerRegistry registry) {
     CircuitBreakerConfig config =
         CircuitBreakerConfig.custom()
+            // Track the last 10 calls in a count-based sliding window
             .slidingWindowSize(10)
+            // Open the circuit if ≥ 50% of those calls fail
             .failureRateThreshold(50.0f)
+            // Stay OPEN for 30 seconds before attempting recovery (HALF-OPEN)
             .waitDurationInOpenState(Duration.ofSeconds(30))
+            // Treat any exception as a failure (can be narrowed to specific types)
             .recordExceptions(Exception.class)
             .build();
 
+    // Register the breaker under a named key matching @CircuitBreaker(name="bigQueryCircuitBreaker")
     CircuitBreaker cb = registry.circuitBreaker("bigQueryCircuitBreaker", config);
 
+    // Log every state transition so operations can observe breaker behaviour in real time
     cb.getEventPublisher()
         .onStateTransition(
             event ->
