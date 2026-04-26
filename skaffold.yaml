@@ -1,10 +1,31 @@
+# =========================================================================
+# SKAFFOLD — KUBERNETES INNER-LOOP AUTOMATION
+# =========================================================================
+# Skaffold handles the workflow for building, pushing, and deploying your 
+# application to a Kubernetes cluster (like GKE or Minikube).
+#
+# TUTORIAL — Why Skaffold?
+# It eliminates the manual cycle of 'mvn package -> docker build -> 
+# docker push -> kubectl apply'. It automates this entire chain.
+# =========================================================================
+
 apiVersion: skaffold/v4beta1
 kind: Config
+
 build:
   artifacts:
+    # Points to the artifact defined in your pom.xml
     - image: spring-kafka-poc
+      # JIB: Google's daemonless container builder. 
+      # It builds Docker images directly from your Maven build without 
+      # needing a local Docker daemon or a Dockerfile.
+      # Benefit: It's faster and produces more efficient layered images.
       jib: {}
+
 deploy:
+  # Standard Kubernetes deployment using manifests
   kubectl:
     manifests:
+      # Automatically picks up all YAML files starting with k8s- 
+      # (e.g. k8s-deployment.yaml, k8s-service.yaml)
       - k8s-*

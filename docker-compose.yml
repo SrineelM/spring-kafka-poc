@@ -1,12 +1,28 @@
+# =========================================================================
+# DOCKER-COMPOSE — LOCAL INFRASTRUCTURE ORCHESTRATION
+# =========================================================================
+# This file bootstraps a complete Kafka ecosystem on your local machine.
+# It simulates the complex network topology required for Avro serialization, 
+# schema validation, and transactional messaging.
+# =========================================================================
+
 version: '3.8'
 
 services:
+  # -----------------------------------------------------------------------
+  # ZOOKEEPER — The Orchestrator
+  # -----------------------------------------------------------------------
+  # Kafka uses Zookeeper for leader election and cluster metadata storage.
   zookeeper:
     image: confluentinc/cp-zookeeper:7.6.0
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
 
+  # -----------------------------------------------------------------------
+  # KAFKA — The Event Backbone
+  # -----------------------------------------------------------------------
+  # Our primary message broker. We've tuned it for local development stability.
   kafka:
     image: confluentinc/cp-kafka:7.6.0
     depends_on:
@@ -16,13 +32,22 @@ services:
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      # ADVERTISED_LISTENERS: Essential for "Local vs Container" networking.
+      # Allows the Spring app on your host machine to connect to 'localhost'.
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      # REPLICATION_FACTOR: Set to 1 for local dev to avoid "insufficient 
+      # brokers" errors on a single-node setup.
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
 
+  # -----------------------------------------------------------------------
+  # SCHEMA REGISTRY — Data Governance
+  # -----------------------------------------------------------------------
+  # The central authority for Avro schemas. It ensures that producers 
+  # can't send messages that consumers don't understand (Preventing Poison Pills).
   schema-registry:
     image: confluentinc/cp-schema-registry:7.6.0
     depends_on:

@@ -1,88 +1,89 @@
-# Local Development Setup Guide
+# 🛠️ Local Development Masterclass: Setting Up the Sandbox
 
-This guide provides instructions for setting up and running the `spring-kafka-poc` application on a local machine.
+This guide details how to bootstrap the `spring-kafka-poc` infrastructure and run the application in a local "Zero-Trust" environment.
+
+---
 
 ## 1. Prerequisites
 
-- **Java 21:** The project is built on Java 21.
-- **Maven:** The project uses Maven for dependency management and build automation.
-- **Docker:** A local Kafka cluster is run via Docker Compose.
+*   **Java 21 (LTS):** The core runtime. Download from [Adoptium](https://adoptium.net/).
+*   **Maven 3.9+:** For build and dependency management.
+*   **Docker & Docker Compose:** To run the Kafka stack.
+*   **Postman or cURL:** For triggering ingestion.
 
-## 2. Starting the Kafka Cluster
+---
 
-The project includes a `docker-compose.yml` file to spin up a local Kafka cluster, including Zookeeper, a Kafka broker, and a Schema Registry.
+## 2. Infrastructure: The Local Cluster
+
+We use a Docker-managed Kafka stack that mimics a production environment.
 
 ```bash
-# From the project root directory
+# Start the stack
 docker-compose up -d
 ```
 
-This will start the following services:
-- **Zookeeper:** `localhost:2181`
-- **Kafka Broker:** `localhost:9092`
-- **Schema Registry:** `localhost:8081`
+**Services Exposed:**
+*   **Kafka Broker:** `localhost:9092`
+*   **Schema Registry:** `localhost:8081` (Avro schema validation)
+*   **Zookeeper:** `localhost:2181`
+*   **AKHQ (Optional):** If configured, visit `localhost:8085` to view topics visually.
+
+---
 
 ## 3. Running the Application
 
-The application is a standard Spring Boot project and can be run from your IDE or via the Maven wrapper.
+### 🔹 The "Local" Baseline
+The `local` profile uses an **in-memory H2 database** and **auto-seeds** the system with sample transactions.
 
-### From Your IDE
-- Import the project as a Maven project.
-- Run the `SpringKafkaPocApplication` main class.
-
-### From the Command Line
 ```bash
-# This will build the project and run all tests
-./mvnw clean install
-
-# This will run the application
-./mvnw spring-boot:run
+./mvnw spring-boot:run -Dspring-boot.run.profiles=local
 ```
 
-The application will start with the `local` profile active by default, which configures it to connect to the local Kafka cluster and use an in-memory H2 database.
+### 🔹 High-Throughput Batch Mode
+To test the batch processing logic (500 records per poll), activate the `batch` profile:
 
-## 4. Activating Profiles
-
-The application uses Spring profiles to control its behavior.
-
-- **`local` (default):** Uses H2 database, single-record Kafka consumer.
-- **`batch`:** Activates the batch Kafka consumer for higher throughput.
-
-To run with the batch consumer active:
 ```bash
-# From the command line
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=local,batch
-
-# Or set the environment variable
-export SPRING_PROFILES_ACTIVE=local,batch
-./mvnw spring-boot:run
 ```
 
-## 5. Verifying the Setup
+---
 
-Once the application is running, you can interact with it via its REST endpoints.
+## 4. Verification: The "Pro-Level" Audit
 
-**Send a transaction:**
+Once the app is running, perform these checks to ensure everything is working correctly:
+
+### 1️⃣ REST Ingestion (The Gateway)
+Submit a transaction and look for the **Correlation ID** in the console logs.
 ```bash
 curl -X POST http://localhost:8080/api/v1/transactions \
 -H "Content-Type: application/json" \
--d '{"amount": 123.45, "accountId": "ACC-TEST-001"}'
+-d '{"amount": 5000.00, "accountId": "ACC-PRO-123"}'
 ```
+*   **Check logs for:** `[correlationId=...]`
+*   **Check result:** `202 Accepted`
 
-**Query the audit trail:**
+### 2️⃣ Database Inspection (The Persistence)
+Access the H2 Console at `http://localhost:8080/h2-console`.
+*   **JDBC URL:** `jdbc:h2:mem:transactiondb`
+*   **User:** `sa` | **Pass:** `password`
+*   **Run:** `SELECT * FROM TRANSACTIONS;` — you should see your record.
+*   **Run:** `SELECT * FROM AUDIT_LOG;` — you should see the `RECEIVED` and `PROCESSED` events.
+
+### 3️⃣ Real-Time Analytics (The Stream)
+Query the Kafka Streams state store directly via Interactive Queries:
 ```bash
-curl http://localhost:8080/api/v1/audit/transaction/{transactionId}
+curl http://localhost:8080/api/v1/analytics/daily-total/ACC-PRO-123
 ```
+*   **Expected:** The running total for that account, fetched from RocksDB.
 
-**Query the real-time analytics:**
-```bash
-curl http://localhost:8080/api/v1/analytics/daily-total/ACC-TEST-001
-```
+---
 
-## 6. Database Schema
-When running with the `local` profile, the application uses an in-memory H2 database. The schema for the `Transactions`, `Outbox`, `AuditLog`, and `INT_LOCK` tables is created automatically on startup (`spring.jpa.hibernate.ddl-auto=create-drop`).
+## 5. Troubleshooting
 
-You can access the H2 console at `http://localhost:8080/h2-console` to inspect the database.
-- **JDBC URL:** `jdbc:h2:mem:testdb`
-- **User Name:** `sa`
-- **Password:** (leave blank)
+*   **Kafka Connection Refused:** Ensure `docker-compose ps` shows all containers as `Up`.
+*   **Schema Registry Error:** The app waits for the registry. If it fails, restart the registry container: `docker-compose restart schema-registry`.
+*   **Port Conflict:** If port `8080` is taken, run with `-Dserver.port=8081`.
+
+---
+
+*“A developer is only as good as their feedback loop. Master your local environment.”*

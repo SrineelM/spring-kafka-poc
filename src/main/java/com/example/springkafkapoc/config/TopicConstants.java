@@ -1,13 +1,19 @@
 package com.example.springkafkapoc.config;
 
 /**
- * Central registry of all Kafka topic names used across the pipeline.
+ * <b>Central Registry of Kafka Topics — The Address Book</b>
  *
- * <p>WHY: Hardcoding topic strings in multiple files is a maintenance trap. A single typo causes a
- * silent split-brain where producers and consumers write/read from different topics. Using
- * constants prevents this entirely and makes topic names refactorable in one place.
+ * <p>In a production system, hardcoding strings is the enemy of reliability. A single typo 
+ * in a topic name leads to a "Silent Failure" where data vanishes into a void.
  *
- * <p>BEGINNER TIP: Think of this as an "address book" for all message channels in the system.
+ * <p><b>TUTORIAL — Why a Constant Registry?</b>
+ * <ul>
+ *   <li><b>Single Source of Truth:</b> If a topic name changes, you update it here once.</li>
+ *   <li><b>Discovery:</b> A new developer can open this file and immediately see the 
+ *       entire data landscape of the application.</li>
+ *   <li><b>Refactoring Safety:</b> Renaming a constant here updates all references 
+ *       across Producers, Consumers, and Streams.</li>
+ * </ul>
  */
 public final class TopicConstants {
 
@@ -15,107 +21,67 @@ public final class TopicConstants {
     // Utility class — do not instantiate
   }
 
-  // -------------------------------------------------------------------------
-  // Ingestion Pipeline Topics
-  // -------------------------------------------------------------------------
+  // =========================================================================
+  // 1. INGESTION TIER (The Entry Points)
+  // =========================================================================
 
-  /** Raw events arriving from the external REST edge node. */
+  /** 
+   * Raw events arriving from the REST API. 
+   * <p>Config: Partitions=3, Retention=24h, Cleanup=Delete
+   */
   public static final String RAW_TRANSACTIONS = "raw-transactions-topic";
 
   /**
-   * Events that have been saved to DB and enriched. Downstream consumers and Kafka Streams
-   * topologies read from here.
+   * Events successfully saved to the primary DB.
+   * <p>This topic is the source for all analytical streams.
    */
   public static final String PROCESSED_TRANSACTIONS = "processed-transactions-topic";
 
   /**
-   * Reference / lookup data topic. Backed by a {@code GlobalKTable} so that <em>every</em> Streams
-   * instance has a full copy of the data locally, enabling enrichment joins without network
-   * shuffles.
+   * Reference data for account metadata.
+   * <p>Config: Cleanup=Compact. Used as a GlobalKTable for enrichment joins.
    */
   public static final String ACCOUNT_REFERENCE = "account-reference-topic";
 
-  // -------------------------------------------------------------------------
-  // Analytics Output Topics
-  // -------------------------------------------------------------------------
+  // =========================================================================
+  // 2. ANALYTICS TIER (Streaming Outputs)
+  // =========================================================================
 
-  /**
-   * Aggregated 24-hour tumbling-window account spending totals emitted by the {@link
-   * com.example.springkafkapoc.streams.AnalyticsTopology}.
-   */
+  /** 24h Tumbling Window results (Daily Totals) */
   public static final String DAILY_ACCOUNT_METRICS = "daily-account-metrics-topic";
 
-  /**
-   * Rolling 1-hour spending totals updated every 15 minutes (hopping window). Suitable for
-   * real-time dashboards that need a constantly-refreshed rolling view.
-   */
+  /** 1h Hopping Window results (Trailing Hourly Trends) */
   public static final String HOURLY_ACCOUNT_METRICS = "hourly-account-metrics-topic";
 
-  /**
-   * Per-session spending totals. One record is emitted per <em>closed</em> activity session per
-   * account, after the session inactivity gap expires. No intermediate results are emitted (see
-   * {@code Suppressed.untilWindowCloses()}).
-   */
+  /** Sessionized activity bursts */
   public static final String SESSION_ACTIVITY = "session-activity-topic";
 
-  // -------------------------------------------------------------------------
-  // Running Balance / State Topics
-  // -------------------------------------------------------------------------
-
-  /**
-   * Running cumulative account balance maintained by a KTable aggregate. Each record represents the
-   * current balance after the latest transaction, queryable via Interactive Queries.
-   */
+  /** Cumulative account balance KTable changelog */
   public static final String ACCOUNT_BALANCES = "account-balances-topic";
 
-  // -------------------------------------------------------------------------
-  // Routing Topics (output of KStream split/branch)
-  // -------------------------------------------------------------------------
+  // =========================================================================
+  // 3. ROUTING & FRAUD TIER
+  // =========================================================================
 
-  /** High-value transactions (amount > 10,000) routed by the streaming topology branch. */
+  /** High-value transactions routed for premium processing (> $10k) */
   public static final String HIGH_VALUE_TRANSACTIONS = "high-value-transactions";
 
-  /** Standard (non-high-value) transactions routed by the streaming topology branch. */
+  /** Normal transactions routed for standard processing */
   public static final String NORMAL_TRANSACTIONS = "normal-transactions";
 
-  /**
-   * Unified audit sink: the merged result of both branches (high-value + standard). Demonstrates
-   * the {@code KStream.merge()} pattern — a "tee junction" after a branch split.
-   */
-  public static final String ALL_TRANSACTIONS_AUDIT = "all-transactions-audit-topic";
-
-  // -------------------------------------------------------------------------
-  // Fraud Detection Topics (KStream-KStream windowed join demo)
-  // -------------------------------------------------------------------------
-
-  /**
-   * Fraud signal events published by an external risk engine. Each event: key={@code accountId},
-   * value={@code fraudReason} (e.g., "VELOCITY_CHECK_FAILED"). Must have the same partition count
-   * as {@link #PROCESSED_TRANSACTIONS} for the co-partitioned KStream-KStream join to work.
-   */
-  public static final String FRAUD_SIGNALS = "fraud-signals-topic";
-
-  /**
-   * Fraud alert events emitted when a transaction correlates with a fraud signal within the
-   * 5-minute KStream-KStream windowed join window.
-   */
+  /** Fraud alert signals emitted by the join topology */
   public static final String FRAUD_ALERTS = "fraud-alerts-topic";
 
-  // -------------------------------------------------------------------------
-  // Audit / Observability Topics (flatMapValues demo)
-  // -------------------------------------------------------------------------
+  /** Input signals from external risk engines for joins */
+  public static final String FRAUD_SIGNALS = "fraud-signals-topic";
+
+  // =========================================================================
+  // 4. RESILIENCE TIER (DLQ)
+  // =========================================================================
 
   /**
-   * Threshold-crossed audit markers generated by {@code flatMapValues}. For a $45,000 transaction,
-   * this emits 4 events: THRESHOLD_10000, THRESHOLD_20000, THRESHOLD_30000, THRESHOLD_40000.
-   * Demonstrates the "explode / fanout" pattern.
+   * Dead Letter Topic (DLT) for "Poison Pill" records.
+   * Records here have failed all retries and require manual forensic investigation.
    */
-  public static final String AUDIT_THRESHOLD_EVENTS = "audit-threshold-events-topic";
-
-  // -------------------------------------------------------------------------
-  // Dead Letter Queues (DLQ) — by convention they use the source topic + ".DLT"
-  // -------------------------------------------------------------------------
-
-  /** Poisoned records from the raw ingestion topic after retries are exhausted. */
   public static final String RAW_TRANSACTIONS_DLT = RAW_TRANSACTIONS + ".DLT";
 }
