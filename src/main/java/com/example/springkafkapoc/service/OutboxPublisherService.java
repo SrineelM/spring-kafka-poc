@@ -32,33 +32,33 @@ import org.springframework.stereotype.Service;
  * decoupled from the DB write and retried indefinitely until it succeeds.
  *
  * <p><b>Distributed Locking:</b><br>
- * In a multi-pod deployment, every pod runs this scheduler. Without locking, all pods would
- * read the same unprocessed records simultaneously and publish each message multiple times.
- * {@link LockRegistry} (backed by a JDBC lock table) ensures only <em>one</em> instance is
- * active at any moment — the others skip their cycle gracefully.
+ * In a multi-pod deployment, every pod runs this scheduler. Without locking, all pods would read
+ * the same unprocessed records simultaneously and publish each message multiple times. {@link
+ * LockRegistry} (backed by a JDBC lock table) ensures only <em>one</em> instance is active at any
+ * moment — the others skip their cycle gracefully.
  *
  * <p><b>Observability:</b><br>
  * Every key event (published, error, lock failure, backlog size) is instrumented with Micrometer
- * counters and gauges so Prometheus/Grafana dashboards can show the health of this relay in
- * real time.
+ * counters and gauges so Prometheus/Grafana dashboards can show the health of this relay in real
+ * time.
  */
 @Slf4j
 @Service
-@EnableScheduling  // Enables @Scheduled methods in this class
+@EnableScheduling // Enables @Scheduled methods in this class
 public class OutboxPublisherService {
 
   private final OutboxService outboxService;
   private final KafkaTemplate<String, TransactionEvent> kafkaTemplate;
-  private final LockRegistry lockRegistry;        // JDBC-backed distributed lock
-  private final ObjectMapper objectMapper;         // JSON deserializer for stored payloads
-  private final MeterRegistry meterRegistry;       // Micrometer metrics registry
+  private final LockRegistry lockRegistry; // JDBC-backed distributed lock
+  private final ObjectMapper objectMapper; // JSON deserializer for stored payloads
+  private final MeterRegistry meterRegistry; // Micrometer metrics registry
 
   // ─── Metrics ──────────────────────────────────────────────────────────────────────────────────
 
-  private final Timer pollTimer;                   // How long one full poll cycle takes
-  private final Counter publishedCounter;          // Total records successfully relayed to Kafka
-  private final Counter errorCounter;              // Total relay failures
-  private final Counter lockFailureCounter;        // Times another instance held the lock
+  private final Timer pollTimer; // How long one full poll cycle takes
+  private final Counter publishedCounter; // Total records successfully relayed to Kafka
+  private final Counter errorCounter; // Total relay failures
+  private final Counter lockFailureCounter; // Times another instance held the lock
   private final AtomicLong backlogSize = new AtomicLong(0); // Current pending outbox size
 
   // The key used to obtain the distributed lock — all instances compete for the same key
@@ -100,8 +100,8 @@ public class OutboxPublisherService {
   }
 
   /**
-   * Scheduled polling method — runs every {@code app.outbox.poll-interval-ms} milliseconds
-   * (default 5 seconds).
+   * Scheduled polling method — runs every {@code app.outbox.poll-interval-ms} milliseconds (default
+   * 5 seconds).
    *
    * <p><b>TUTORIAL — Step-by-step flow:</b>
    *
@@ -116,9 +116,9 @@ public class OutboxPublisherService {
    * </ol>
    *
    * <p><b>PRO TIP — At-Least-Once guarantee:</b><br>
-   * If the JVM crashes after the Kafka send but before {@code markAsProcessed}, the record will
-   * be sent to Kafka again on the next poll. Downstream consumers must therefore be idempotent.
-   * This is a deliberate trade-off: we prefer duplicate delivery over silent data loss.
+   * If the JVM crashes after the Kafka send but before {@code markAsProcessed}, the record will be
+   * sent to Kafka again on the next poll. Downstream consumers must therefore be idempotent. This
+   * is a deliberate trade-off: we prefer duplicate delivery over silent data loss.
    */
   @Scheduled(fixedDelayString = "${app.outbox.poll-interval-ms:5000}")
   public void publishOutboxMessages() {

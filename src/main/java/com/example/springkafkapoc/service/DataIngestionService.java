@@ -24,9 +24,9 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p><b>WHY Avro?</b><br>
  * Avro enforces a strict schema contract between producer and consumer. The schema is stored in a
- * central <b>Schema Registry</b>. If a producer tries to publish a record that is incompatible
- * with the registered schema (e.g., a required field is removed), the serializer will throw an
- * exception — preventing the breaking change from ever reaching consumers at runtime.
+ * central <b>Schema Registry</b>. If a producer tries to publish a record that is incompatible with
+ * the registered schema (e.g., a required field is removed), the serializer will throw an exception
+ * — preventing the breaking change from ever reaching consumers at runtime.
  *
  * <p><b>PRO TIP — Schema-first design:</b><br>
  * Always define your Avro schema ({@code .avsc}) before writing producer code. Generate the Java
@@ -54,8 +54,8 @@ public class DataIngestionService {
    * completes when the Kafka broker acknowledges the record. The caller (controller) does not
    * block.
    *
-   * @param amount    the transaction monetary value — {@link BigDecimal} to avoid floating-point
-   *                  precision errors that plague {@code double} and {@code float} for currency
+   * @param amount the transaction monetary value — {@link BigDecimal} to avoid floating-point
+   *     precision errors that plague {@code double} and {@code float} for currency
    * @param accountId the originating account identifier
    * @return a future that resolves to the Kafka {@link SendResult} on success
    */
@@ -69,7 +69,8 @@ public class DataIngestionService {
     //   2. Excellent for distributed systems — globally unique AND temporally ordered
     //   3. Friendly to B-tree indexes (sequential inserts vs. random page splits)
     String transactionId = UuidCreator.getTimeOrderedEpoch().toString();
-    log.info("Ingesting transaction: id={}, account={}, amount={}", transactionId, accountId, amount);
+    log.info(
+        "Ingesting transaction: id={}, account={}, amount={}", transactionId, accountId, amount);
 
     // Build the Avro event using the generated builder pattern.
     // All fields here map directly to the TransactionEvent.avsc schema definition.

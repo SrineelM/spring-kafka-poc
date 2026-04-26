@@ -29,9 +29,9 @@ import org.springframework.transaction.annotation.Transactional;
  * typically in a staging or AlloyDB-specific deployment profile.
  *
  * <p><b>PRO TIP — Zero-Code Migration:</b><br>
- * Because both AlloyDB and H2 are SQL-compatible, and this class uses the same Spring Data
- * {@link TransactionRepository}, switching from H2 (dev) to AlloyDB (staging) requires only a
- * property change. No code changes. This is the adapter pattern's greatest strength.
+ * Because both AlloyDB and H2 are SQL-compatible, and this class uses the same Spring Data {@link
+ * TransactionRepository}, switching from H2 (dev) to AlloyDB (staging) requires only a property
+ * change. No code changes. This is the adapter pattern's greatest strength.
  */
 @Slf4j
 @Service("alloyDbTransactionService")
@@ -45,8 +45,8 @@ public class AlloyDbTransactionService implements TransactionPersistencePort {
   /**
    * Saves a transaction via the AlloyDB JDBC connection.
    *
-   * <p>AlloyDB auto-scales compute and uses a distributed storage layer, so this {@code save}
-   * call can handle very high concurrency without manual connection pool tuning.
+   * <p>AlloyDB auto-scales compute and uses a distributed storage layer, so this {@code save} call
+   * can handle very high concurrency without manual connection pool tuning.
    */
   @Override
   @Transactional
@@ -60,9 +60,9 @@ public class AlloyDbTransactionService implements TransactionPersistencePort {
   /**
    * Idempotency lookup.
    *
-   * <p>AlloyDB supports covering indexes, which can make this query very fast if
-   * {@code transaction_id} is indexed — which it is, via the {@code @UniqueConstraint} on the
-   * {@link TransactionEntity}.
+   * <p>AlloyDB supports covering indexes, which can make this query very fast if {@code
+   * transaction_id} is indexed — which it is, via the {@code @UniqueConstraint} on the {@link
+   * TransactionEntity}.
    */
   @Override
   public Optional<Transaction> findById(String transactionId) {

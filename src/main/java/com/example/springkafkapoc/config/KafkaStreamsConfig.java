@@ -48,7 +48,7 @@ import org.springframework.kafka.config.KafkaStreamsConfiguration;
  */
 @Slf4j
 @Configuration
-@EnableKafkaStreams  // Registers the StreamsBuilderFactoryBean and manages thread lifecycle
+@EnableKafkaStreams // Registers the StreamsBuilderFactoryBean and manages thread lifecycle
 @RequiredArgsConstructor
 public class KafkaStreamsConfig {
 
@@ -135,8 +135,8 @@ public class KafkaStreamsConfig {
    * topology classes, which append their processing steps to the shared builder.
    *
    * <p>The {@link com.example.springkafkapoc.streams.topology.SourceTopology.SourceContext}
-   * returned here contains both the keyed and grouped streams, allowing downstream topologies
-   * to share them without re-reading from Kafka (which would be wasteful).
+   * returned here contains both the keyed and grouped streams, allowing downstream topologies to
+   * share them without re-reading from Kafka (which would be wasteful).
    */
   @Bean
   public com.example.springkafkapoc.streams.topology.SourceTopology.SourceContext sourceContext(
@@ -162,14 +162,14 @@ public class KafkaStreamsConfig {
     log.info("Registering Analytics Topologies (Balances, Metrics, Sessions, Fraud, Routing)...");
 
     var groupedStream = context.getGroupedStream(); // used by aggregation topologies
-    var keyedStream = context.getKeyedStream();     // used by join and routing topologies
+    var keyedStream = context.getKeyedStream(); // used by join and routing topologies
 
     // Each topology appends its own processing steps to the shared StreamsBuilder
-    balanceTopology.build(groupedStream);  // real-time balance KTable
-    metricsTopology.build(groupedStream);  // 24h tumbling + 1h hopping windows
-    sessionTopology.build(groupedStream);  // user-activity session windows
-    fraudTopology.build(builder, keyedStream);  // stream-stream temporal join
-    routingTopology.build(keyedStream);    // branch into high-value vs. standard topics
+    balanceTopology.build(groupedStream); // real-time balance KTable
+    metricsTopology.build(groupedStream); // 24h tumbling + 1h hopping windows
+    sessionTopology.build(groupedStream); // user-activity session windows
+    fraudTopology.build(builder, keyedStream); // stream-stream temporal join
+    routingTopology.build(keyedStream); // branch into high-value vs. standard topics
 
     // Return the keyed stream so it can be used by other beans (e.g., Interactive Queries)
     return keyedStream;

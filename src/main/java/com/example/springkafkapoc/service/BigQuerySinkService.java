@@ -109,7 +109,7 @@ public class BigQuerySinkService {
 
           // If we previously paused the consumer and it's working now, resume it.
           if (paused.compareAndSet(true, false)) {
-            // PRO TIP: This is "Self-Healing". Once the sink is healthy, 
+            // PRO TIP: This is "Self-Healing". Once the sink is healthy,
             // we resume the flow of data automatically.
             resumeConsumer();
           }

@@ -16,18 +16,18 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p><b>TUTORIAL — What is Cloud Spanner?</b><br>
  * Google Cloud Spanner is a globally distributed, horizontally scalable, strongly consistent
- * relational database. It's the only database that simultaneously provides ACID transactions,
- * SQL semantics, and horizontal scaling across global regions — making it ideal for financial
- * workloads where data consistency and availability are non-negotiable.
+ * relational database. It's the only database that simultaneously provides ACID transactions, SQL
+ * semantics, and horizontal scaling across global regions — making it ideal for financial workloads
+ * where data consistency and availability are non-negotiable.
  *
  * <p><b>{@code @ConditionalOnProperty} — Conditional Bean Loading:</b><br>
- * This adapter only registers as a Spring bean when {@code app.database.spanner-enabled=true}.
- * When that property is absent or false (e.g., local development), this class is completely
- * invisible to Spring — no bean, no database connections, no startup cost.
+ * This adapter only registers as a Spring bean when {@code app.database.spanner-enabled=true}. When
+ * that property is absent or false (e.g., local development), this class is completely invisible to
+ * Spring — no bean, no database connections, no startup cost.
  *
- * <p>This is a production-grade alternative to {@code @Profile("production")}: properties are
- * more flexible than profiles because they can be set per-environment via ConfigMaps, Secrets,
- * or environment variables without changing the deployment descriptor.
+ * <p>This is a production-grade alternative to {@code @Profile("production")}: properties are more
+ * flexible than profiles because they can be set per-environment via ConfigMaps, Secrets, or
+ * environment variables without changing the deployment descriptor.
  *
  * <p><b>Distributed Consistency:</b><br>
  * Spanner provides external consistency — stronger than serializable isolation. This means that
@@ -35,7 +35,7 @@ import org.springframework.transaction.annotation.Transactional;
  * For a payments system processing transactions across time zones, this is essential.
  */
 @Slf4j
-@Service("spannerTransactionService")  // Named bean for @Qualifier-based injection
+@Service("spannerTransactionService") // Named bean for @Qualifier-based injection
 @RequiredArgsConstructor
 @ConditionalOnProperty(name = "app.database.spanner-enabled", havingValue = "true")
 public class SpannerTransactionService implements TransactionPersistencePort {
@@ -48,9 +48,9 @@ public class SpannerTransactionService implements TransactionPersistencePort {
   /**
    * Persists a transaction to Cloud Spanner.
    *
-   * <p>The implementation is intentionally identical to the H2 adapter — this is the power of
-   * the adapter pattern. The only difference is the database dialect and connection pool,
-   * configured in the Spring datasource properties for the Spanner profile.
+   * <p>The implementation is intentionally identical to the H2 adapter — this is the power of the
+   * adapter pattern. The only difference is the database dialect and connection pool, configured in
+   * the Spring datasource properties for the Spanner profile.
    */
   @Override
   @Transactional

@@ -25,13 +25,13 @@ import org.springframework.transaction.annotation.Transactional;
  *   <li>Kafka publishes, DB commit fails → duplicate message with no corresponding DB record.
  * </ol>
  *
- * <p>The Outbox pattern solves this by making the Kafka "intent" part of the same DB transaction
- * as the business update. Instead of publishing to Kafka directly, you write a row to an
- * {@code outbox} table — inside the same DB transaction. A separate relay process
- * ({@link OutboxPublisherService}) then reads that table and forwards to Kafka.
+ * <p>The Outbox pattern solves this by making the Kafka "intent" part of the same DB transaction as
+ * the business update. Instead of publishing to Kafka directly, you write a row to an {@code
+ * outbox} table — inside the same DB transaction. A separate relay process ({@link
+ * OutboxPublisherService}) then reads that table and forwards to Kafka.
  *
- * <p>This guarantees that a message is published <em>if and only if</em> the business data was
- * also saved — atomically, with the same ACID guarantees your DB provides.
+ * <p>This guarantees that a message is published <em>if and only if</em> the business data was also
+ * saved — atomically, with the same ACID guarantees your DB provides.
  *
  * <p><b>PRO TIP:</b> In high-scale systems, CDC (Change Data Capture) tools like Debezium can
  * replace the polling relay by streaming the outbox table's WAL log directly to Kafka — removing
@@ -43,16 +43,16 @@ import org.springframework.transaction.annotation.Transactional;
 public class OutboxService {
 
   private final OutboxRepository outboxRepository; // JPA repository for the outbox table
-  private final OutboxMapper mapper;               // MapStruct domain ↔ entity converter
-  private final ObjectMapper objectMapper;         // Jackson JSON serializer for payloads
+  private final OutboxMapper mapper; // MapStruct domain ↔ entity converter
+  private final ObjectMapper objectMapper; // Jackson JSON serializer for payloads
 
   /**
    * Saves an Outbox record — typically called from within an existing business transaction.
    *
    * <p><b>TUTORIAL:</b> The default {@code @Transactional} propagation is {@code REQUIRED}, which
-   * means this method joins the caller's existing transaction. If the caller rolls back, this
-   * write rolls back too — that's exactly what we want. The outbox record only survives if the
-   * business record also survives.
+   * means this method joins the caller's existing transaction. If the caller rolls back, this write
+   * rolls back too — that's exactly what we want. The outbox record only survives if the business
+   * record also survives.
    *
    * @param outbox the domain model describing the message to relay
    */
@@ -76,8 +76,8 @@ public class OutboxService {
    * deserializes back to the specific type ({@code TransactionEvent}).
    *
    * @param aggregateId the business key to use as the Kafka message key
-   * @param payload     the Java object to serialize as the Kafka message value
-   * @param topic       the destination Kafka topic name
+   * @param payload the Java object to serialize as the Kafka message value
+   * @param topic the destination Kafka topic name
    */
   @Transactional
   public void saveToOutbox(String aggregateId, Object payload, String topic) {
@@ -102,14 +102,14 @@ public class OutboxService {
    * Finds pending (unprocessed) Outbox records in a bounded batch.
    *
    * <p><b>TUTORIAL — Why paged? Why not load all?</b><br>
-   * If the relay falls behind (e.g., Kafka was down for hours), there could be thousands of
-   * pending rows. Loading them all into memory in one query would cause an OOM error. A page
-   * of 100 rows balances throughput with memory safety. The relay runs in a tight loop
-   * (every 5s), so even with page size 100, it can relay 1200 records/minute.
+   * If the relay falls behind (e.g., Kafka was down for hours), there could be thousands of pending
+   * rows. Loading them all into memory in one query would cause an OOM error. A page of 100 rows
+   * balances throughput with memory safety. The relay runs in a tight loop (every 5s), so even with
+   * page size 100, it can relay 1200 records/minute.
    *
-   * <p>The repository query uses {@code SELECT FOR UPDATE SKIP LOCKED} — this ensures that if
-   * two instances of the poller somehow run simultaneously, they get <em>different</em> rows
-   * rather than competing for the same ones.
+   * <p>The repository query uses {@code SELECT FOR UPDATE SKIP LOCKED} — this ensures that if two
+   * instances of the poller somehow run simultaneously, they get <em>different</em> rows rather
+   * than competing for the same ones.
    */
   @Transactional(readOnly = true) // readOnly = true hints to the DB optimizer that no writes occur
   public List<Outbox> findUnprocessedMessages() {
@@ -121,9 +121,9 @@ public class OutboxService {
   /**
    * Atomically marks an Outbox record as processed.
    *
-   * <p>Uses a targeted UPDATE query (not a full entity load + save) for minimal DB round-trips.
-   * The {@code rows == 0} check catches races where two threads somehow both attempt to mark the
-   * same record — the second one logs a warning rather than silently succeeding.
+   * <p>Uses a targeted UPDATE query (not a full entity load + save) for minimal DB round-trips. The
+   * {@code rows == 0} check catches races where two threads somehow both attempt to mark the same
+   * record — the second one logs a warning rather than silently succeeding.
    *
    * @param id the database primary key of the Outbox record to close
    */

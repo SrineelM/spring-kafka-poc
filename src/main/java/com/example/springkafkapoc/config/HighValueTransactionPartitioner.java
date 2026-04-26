@@ -48,7 +48,10 @@ public class HighValueTransactionPartitioner implements Partitioner {
 
       // If the amount exceeds our threshold, route to the priority partition
       if (amountField instanceof BigDecimal amount && amount.compareTo(HIGH_VALUE_THRESHOLD) > 0) {
-        log.debug("PRIORITY Routing: {} > threshold — sending to partition {}", amount, PRIORITY_PARTITION);
+        log.debug(
+            "PRIORITY Routing: {} > threshold — sending to partition {}",
+            amount,
+            PRIORITY_PARTITION);
         return PRIORITY_PARTITION;
       }
     }

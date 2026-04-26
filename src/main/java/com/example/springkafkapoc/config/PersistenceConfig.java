@@ -23,18 +23,18 @@ import org.springframework.transaction.PlatformTransactionManager;
  * <p>This class centralizes all persistence-layer infrastructure beans. Three concerns live here:
  *
  * <p><b>1. Distributed Locking (JDBC-backed)</b><br>
- * We use Spring Integration's {@link JdbcLockRegistry} to coordinate which application instance
- * may poll the Outbox at any given moment. The lock state is stored in the {@code INT_LOCK} table,
- * so all instances in a cluster share the same view. Without this, two pods would simultaneously
- * read the same unprocessed outbox records and publish duplicates to Kafka.
+ * We use Spring Integration's {@link JdbcLockRegistry} to coordinate which application instance may
+ * poll the Outbox at any given moment. The lock state is stored in the {@code INT_LOCK} table, so
+ * all instances in a cluster share the same view. Without this, two pods would simultaneously read
+ * the same unprocessed outbox records and publish duplicates to Kafka.
  *
  * <p><b>2. Transaction Management</b><br>
  * The standard JPA {@link JpaTransactionManager} is declared here as the {@code @Primary} bean so
  * every {@code @Transactional} annotation in the codebase uses the correct manager.
  *
  * <p><b>3. Circuit Breaker (Resilience4j)</b><br>
- * The BigQuery circuit breaker guards the analytics sink. If the external service degrades,
- * the breaker "opens" and the fallback is invoked — which pauses the Kafka consumer instead of
+ * The BigQuery circuit breaker guards the analytics sink. If the external service degrades, the
+ * breaker "opens" and the fallback is invoked — which pauses the Kafka consumer instead of
  * hammering a broken endpoint.
  *
  * <p><b>PRO TIP:</b> Distributed locking is the secret to scaling outbox-processors safely. Without
@@ -95,8 +95,8 @@ public class PersistenceConfig {
    * <ul>
    *   <li><b>CLOSED (normal):</b> Requests pass through. Failures are counted.
    *   <li><b>OPEN (degraded):</b> If the failure rate exceeds the threshold (50% here over a
-   *       sliding window of 10 calls), the breaker opens. Further calls are rejected instantly
-   *       (the fallback method is invoked) without even trying. This protects thread pools.
+   *       sliding window of 10 calls), the breaker opens. Further calls are rejected instantly (the
+   *       fallback method is invoked) without even trying. This protects thread pools.
    *   <li><b>HALF-OPEN (recovery):</b> After {@code waitDurationInOpenState} (30s here), the
    *       breaker allows a limited number of test calls through. If they succeed, it closes again.
    * </ul>
@@ -119,7 +119,8 @@ public class PersistenceConfig {
             .recordExceptions(Exception.class)
             .build();
 
-    // Register the breaker under a named key matching @CircuitBreaker(name="bigQueryCircuitBreaker")
+    // Register the breaker under a named key matching
+    // @CircuitBreaker(name="bigQueryCircuitBreaker")
     CircuitBreaker cb = registry.circuitBreaker("bigQueryCircuitBreaker", config);
 
     // Log every state transition so operations can observe breaker behaviour in real time

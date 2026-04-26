@@ -55,8 +55,8 @@ public interface TransactionPersistencePort {
   /**
    * Returns a human-readable name identifying which storage engine is active.
    *
-   * <p>Used for audit logs and diagnostic endpoints so operations can confirm which backend is
-   * live without inspecting Spring profiles directly.
+   * <p>Used for audit logs and diagnostic endpoints so operations can confirm which backend is live
+   * without inspecting Spring profiles directly.
    *
    * @return e.g. "H2 In-Memory", "Google Cloud Spanner", "Google Cloud AlloyDB"
    */

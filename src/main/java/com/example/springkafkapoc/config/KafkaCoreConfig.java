@@ -41,8 +41,8 @@ import org.springframework.util.backoff.ExponentialBackOff;
  * <ul>
  *   <li><b>Producer Factories:</b> Default (for most use cases) and custom-partitioner variant.
  *   <li><b>Consumer Factory:</b> Shared Avro consumer with read-committed isolation.
- *   <li><b>Listener Container Factories:</b> Single-record and batch-mode, both with error
- *       handling and manual acknowledgement.
+ *   <li><b>Listener Container Factories:</b> Single-record and batch-mode, both with error handling
+ *       and manual acknowledgement.
  *   <li><b>Topic Beans:</b> Declarative topic creation (idempotent — Kafka skips if already
  *       exists).
  *   <li><b>Error Handler:</b> Exponential-backoff retries → DLT routing on exhaustion.
@@ -67,8 +67,8 @@ public class KafkaCoreConfig {
    * producer instances. Spring wraps the underlying Apache Kafka {@code KafkaProducer}, which is
    * thread-safe and long-lived. The factory manages the lifecycle of these producers.
    *
-   * <p>Marking this {@code @Primary} means it is injected by default whenever a
-   * {@code ProducerFactory<String, TransactionEvent>} is required without further qualification.
+   * <p>Marking this {@code @Primary} means it is injected by default whenever a {@code
+   * ProducerFactory<String, TransactionEvent>} is required without further qualification.
    *
    * <p><b>WHY:</b> Centralizing this ensures all producers in the app share the same security,
    * serialization, idempotence, and tracing settings.
@@ -119,14 +119,14 @@ public class KafkaCoreConfig {
    * <p><b>TUTORIAL — Key Producer Settings:</b>
    *
    * <ul>
-   *   <li>{@code ENABLE_IDEMPOTENCE}: Ensures the broker deduplicates retries. Even if the
-   *       producer retries the same record (due to a network timeout), the broker only appends it
-   *       once. This requires {@code acks=all} and {@code retries > 0}.
+   *   <li>{@code ENABLE_IDEMPOTENCE}: Ensures the broker deduplicates retries. Even if the producer
+   *       retries the same record (due to a network timeout), the broker only appends it once. This
+   *       requires {@code acks=all} and {@code retries > 0}.
    *   <li>{@code ACKS_CONFIG=all}: The producer waits for confirmation from the leader AND all
    *       In-Sync Replicas (ISR). The strongest durability guarantee — no data loss even if the
    *       leader crashes immediately after the ack.
-   *   <li>{@code INTERCEPTOR_CLASSES}: Injects our {@link KafkaCorrelationIdInterceptor} into
-   *       every outgoing record's headers. Invisible to business code — zero coupling.
+   *   <li>{@code INTERCEPTOR_CLASSES}: Injects our {@link KafkaCorrelationIdInterceptor} into every
+   *       outgoing record's headers. Invisible to business code — zero coupling.
    * </ul>
    */
   private Map<String, Object> commonProducerProps() {
@@ -157,10 +157,9 @@ public class KafkaCoreConfig {
   /**
    * <b>Primary KafkaTemplate</b>
    *
-   * <p><b>TUTORIAL:</b> {@link KafkaTemplate} is the Spring equivalent of {@code JdbcTemplate}
-   * for Kafka. It wraps the {@code ProducerFactory} and exposes simple {@code send(topic, key,
-   * value)} methods. It handles serialization, error callbacks, and transaction wrappers
-   * transparently.
+   * <p><b>TUTORIAL:</b> {@link KafkaTemplate} is the Spring equivalent of {@code JdbcTemplate} for
+   * Kafka. It wraps the {@code ProducerFactory} and exposes simple {@code send(topic, key, value)}
+   * methods. It handles serialization, error callbacks, and transaction wrappers transparently.
    */
   @Bean
   @Primary
@@ -187,9 +186,9 @@ public class KafkaCoreConfig {
    * <p><b>TUTORIAL — Key Consumer Settings:</b>
    *
    * <ul>
-   *   <li>{@code specific.avro.reader=true}: Tells the Confluent Avro deserializer to generate
-   *       the compiled Java class ({@code TransactionEvent}) rather than a generic Avro
-   *       {@code GenericRecord}. Required to access typed fields like {@code event.getAmount()}.
+   *   <li>{@code specific.avro.reader=true}: Tells the Confluent Avro deserializer to generate the
+   *       compiled Java class ({@code TransactionEvent}) rather than a generic Avro {@code
+   *       GenericRecord}. Required to access typed fields like {@code event.getAmount()}.
    *   <li>{@code MAX_POLL_RECORDS}: How many records the consumer fetches per {@code poll()} call.
    *       500 is a good default for balanced throughput. Increase for high-throughput batch sinks,
    *       decrease for latency-sensitive single-record processing.
@@ -234,12 +233,12 @@ public class KafkaCoreConfig {
    * <ol>
    *   <li><b>Error Handler:</b> Our custom {@link DefaultErrorHandler} applies exponential-backoff
    *       retries then routes to the DLT. Listeners don't need to handle retries themselves.
-   *   <li><b>Correlation ID Extractor:</b> Runs before every listener method to restore the
-   *       trace context from Kafka headers into MDC. Enables end-to-end log correlation.
+   *   <li><b>Correlation ID Extractor:</b> Runs before every listener method to restore the trace
+   *       context from Kafka headers into MDC. Enables end-to-end log correlation.
    *   <li><b>MANUAL_IMMEDIATE Ack Mode:</b> The consumer does NOT auto-commit offsets. Your code
-   *       must call {@code ack.acknowledge()} explicitly. This is the key guard: offsets are
-   *       only committed after your database write succeeds. A JVM crash before {@code ack}
-   *       means the message is redelivered — no data loss possible.
+   *       must call {@code ack.acknowledge()} explicitly. This is the key guard: offsets are only
+   *       committed after your database write succeeds. A JVM crash before {@code ack} means the
+   *       message is redelivered — no data loss possible.
    * </ol>
    */
   @Bean
@@ -265,8 +264,8 @@ public class KafkaCoreConfig {
    * <p><b>TUTORIAL — Batching trade-offs:</b>
    *
    * <ul>
-   *   <li><b>Speed:</b> One DB transaction for N records = N× fewer round-trips. Throughput can
-   *       be 10–100× higher than single-record mode.
+   *   <li><b>Speed:</b> One DB transaction for N records = N× fewer round-trips. Throughput can be
+   *       10–100× higher than single-record mode.
    *   <li><b>Risk:</b> If the batch fails and retries, ALL records in the batch are redelivered —
    *       including the ones that already succeeded in the database. Idempotency checks inside the
    *       listener are therefore non-optional.
@@ -292,9 +291,9 @@ public class KafkaCoreConfig {
   /**
    * <b>Request-Reply Support — Kafka as an RPC bus</b>
    *
-   * <p><b>TUTORIAL:</b> The {@link ReplyingKafkaTemplate} implements the "Request-Reply"
-   * messaging pattern: the caller publishes a request record to a topic and then blocks (within a
-   * timeout) waiting for a reply to appear on a dedicated reply topic.
+   * <p><b>TUTORIAL:</b> The {@link ReplyingKafkaTemplate} implements the "Request-Reply" messaging
+   * pattern: the caller publishes a request record to a topic and then blocks (within a timeout)
+   * waiting for a reply to appear on a dedicated reply topic.
    *
    * <p><b>PRO TIP:</b> This is useful for "Confirm Before Proceed" flows (e.g., payment
    * authorization) but comes with a major cost: it couples the caller to a specific responder and
@@ -474,13 +473,13 @@ public class KafkaCoreConfig {
    *
    * <p><b>1. Exponential Backoff (Retry Strategy)</b><br>
    * On any exception, retries with increasing delays: {@code 2s → 4s → 8s → 16s → 20s (capped)}
-   * within a 60-second total window. This gives transient dependencies (DB restarts, network
-   * blips) time to recover without crashing the consumer or causing a partition rebalance.
+   * within a 60-second total window. This gives transient dependencies (DB restarts, network blips)
+   * time to recover without crashing the consumer or causing a partition rebalance.
    *
    * <p><b>2. Dead Letter Topic (Exhausted Retry Strategy)</b><br>
-   * When retries run out, {@link DeadLetterPublishingRecoverer} routes the failed record to
-   * {@code <original-topic>.DLT} on the <em>same partition</em>. Same partition is crucial:
-   * it preserves ordering context for forensic replay. Example:<br>
+   * When retries run out, {@link DeadLetterPublishingRecoverer} routes the failed record to {@code
+   * <original-topic>.DLT} on the <em>same partition</em>. Same partition is crucial: it preserves
+   * ordering context for forensic replay. Example:<br>
    * {@code raw-transactions → raw-transactions.DLT}
    *
    * <p><b>3. Non-Retryable Exclusions</b><br>
@@ -489,10 +488,10 @@ public class KafkaCoreConfig {
    * bypassing backoff entirely and going straight to the DLT.
    *
    * <p><b>WARNING — Rebalance Risk:</b><br>
-   * If the total backoff window ({@code maxElapsedTime} = 60s here) exceeds
-   * {@code max.poll.interval.ms}, the broker will consider the consumer dead and trigger a
-   * rebalance mid-retry. Always ensure {@code max.poll.interval.ms > maxElapsedTime}.
-   * See {@code application.yml} for the corresponding consumer timeout settings.
+   * If the total backoff window ({@code maxElapsedTime} = 60s here) exceeds {@code
+   * max.poll.interval.ms}, the broker will consider the consumer dead and trigger a rebalance
+   * mid-retry. Always ensure {@code max.poll.interval.ms > maxElapsedTime}. See {@code
+   * application.yml} for the corresponding consumer timeout settings.
    */
   @Bean
   public DefaultErrorHandler errorHandler(KafkaTemplate<String, TransactionEvent> template) {
@@ -507,8 +506,8 @@ public class KafkaCoreConfig {
 
     // Exponential backoff: start at 2s, double each attempt, cap at 20s per attempt
     ExponentialBackOff backOff = new ExponentialBackOff(2000L, 2.0);
-    backOff.setMaxElapsedTime(60000L);  // 60s total window — covers most DB/service restarts
-    backOff.setMaxInterval(20000L);     // Cap a single delay at 20s to stay within poll interval
+    backOff.setMaxElapsedTime(60000L); // 60s total window — covers most DB/service restarts
+    backOff.setMaxInterval(20000L); // Cap a single delay at 20s to stay within poll interval
 
     DefaultErrorHandler handler = new DefaultErrorHandler(recoverer, backOff);
 

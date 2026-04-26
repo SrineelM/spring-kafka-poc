@@ -27,12 +27,12 @@ import org.springframework.transaction.annotation.Transactional;
  * <ul>
  *   <li><b>Append-Only:</b> Audit records are never updated or deleted. Each event (RECEIVED,
  *       PROCESSED, RETRY, DLQ) is a new row. This preserves the full history.
- *   <li><b>{@code REQUIRES_NEW} Propagation:</b> This is the most important design choice here.
- *       If the main business transaction rolls back (e.g., a DB constraint violation), the audit
- *       log of that <em>attempt</em> must still be saved. Using {@code REQUIRES_NEW} suspends
- *       the current transaction and opens a fresh, independent one just for the audit write.
- *   <li><b>MapStruct Mapping:</b> Domain {@link AuditLog} objects are converted to JPA entities
- *       via a generated mapper — keeping the domain model free of persistence annotations.
+ *   <li><b>{@code REQUIRES_NEW} Propagation:</b> This is the most important design choice here. If
+ *       the main business transaction rolls back (e.g., a DB constraint violation), the audit log
+ *       of that <em>attempt</em> must still be saved. Using {@code REQUIRES_NEW} suspends the
+ *       current transaction and opens a fresh, independent one just for the audit write.
+ *   <li><b>MapStruct Mapping:</b> Domain {@link AuditLog} objects are converted to JPA entities via
+ *       a generated mapper — keeping the domain model free of persistence annotations.
  * </ul>
  */
 @Slf4j
@@ -41,18 +41,18 @@ import org.springframework.transaction.annotation.Transactional;
 public class AuditService {
 
   private final AuditLogRepository auditRepository; // Spring Data JPA repository for audit rows
-  private final AuditLogMapper mapper;               // MapStruct domain ↔ entity converter
+  private final AuditLogMapper mapper; // MapStruct domain ↔ entity converter
 
   /**
    * Core event recorder — all other audit methods delegate here.
    *
-   * <p>{@code Propagation.REQUIRES_NEW}: even if the caller is mid-rollback, this method
-   * opens a <em>new</em> transaction to ensure the audit entry is always persisted.
+   * <p>{@code Propagation.REQUIRES_NEW}: even if the caller is mid-rollback, this method opens a
+   * <em>new</em> transaction to ensure the audit entry is always persisted.
    *
    * @param transactionId the business transaction being audited
-   * @param accountId     the account associated with the transaction
-   * @param eventType     the lifecycle stage (RECEIVED, PROCESSED, RETRY, DLQ, etc.)
-   * @param detail        a human-readable description of what happened
+   * @param accountId the account associated with the transaction
+   * @param eventType the lifecycle stage (RECEIVED, PROCESSED, RETRY, DLQ, etc.)
+   * @param detail a human-readable description of what happened
    */
   @Transactional(propagation = Propagation.REQUIRES_NEW)
   public void recordEvent(
@@ -64,17 +64,18 @@ public class AuditService {
   /**
    * Full-signature recorder — includes Kafka partition and offset for forensic tracing.
    *
-   * <p>Storing the partition and offset alongside the business event means you can use
-   * {@code kafka-console-consumer --partition X --offset Y} to retrieve the exact raw message
-   * that caused an issue — incredibly useful during incident investigations.
+   * <p>Storing the partition and offset alongside the business event means you can use {@code
+   * kafka-console-consumer --partition X --offset Y} to retrieve the exact raw message that caused
+   * an issue — incredibly useful during incident investigations.
    */
   @Transactional(propagation = Propagation.REQUIRES_NEW)
   public void recordEvent(
       String transactionId,
       String accountId,
       AuditEventType eventType,
-      Integer partition,   // The Kafka partition the record arrived from (may be null for non-Kafka events)
-      Long offset,         // The Kafka offset — cross-reference with broker logs
+      Integer partition, // The Kafka partition the record arrived from (may be null for non-Kafka
+      // events)
+      Long offset, // The Kafka offset — cross-reference with broker logs
       String detail) {
     log.debug("Auditing: id={}, event={}, detail={}", transactionId, eventType, detail);
 
@@ -98,8 +99,8 @@ public class AuditService {
    * Convenience method for the initial message receipt event.
    *
    * <p>Called when a transaction first arrives via REST — before any Kafka processing begins.
-   * Captures the amount so that any subsequent DLQ or failure can be correlated back to
-   * the original dollar value.
+   * Captures the amount so that any subsequent DLQ or failure can be correlated back to the
+   * original dollar value.
    */
   public void recordReceived(
       String transactionId, String accountId, BigDecimal amount, String details) {
@@ -113,8 +114,8 @@ public class AuditService {
   /**
    * Called at the start of Kafka consumer processing.
    *
-   * <p>Recording the Kafka partition and offset here means you can prove exactly which message
-   * was being processed if the system crashes mid-flight.
+   * <p>Recording the Kafka partition and offset here means you can prove exactly which message was
+   * being processed if the system crashes mid-flight.
    */
   public void recordProcessing(String transactionId, String accountId, int partition, long offset) {
     recordEvent(
@@ -139,8 +140,8 @@ public class AuditService {
   /**
    * Records a Dead Letter Queue (DLQ) event — the record could not be processed after all retries.
    *
-   * <p>This is critical for compliance: auditors can query all DLQ events to see which
-   * transactions were never processed and why.
+   * <p>This is critical for compliance: auditors can query all DLQ events to see which transactions
+   * were never processed and why.
    */
   public void recordDlq(
       String transactionId, String accountId, int partition, long offset, String reason) {
@@ -169,8 +170,8 @@ public class AuditService {
   /**
    * Counts how many retry attempts were recorded for a transaction.
    *
-   * <p>High retry counts indicate persistent infrastructure issues or poison-pill records.
-   * Expose this via a metrics endpoint or Grafana alert.
+   * <p>High retry counts indicate persistent infrastructure issues or poison-pill records. Expose
+   * this via a metrics endpoint or Grafana alert.
    */
   public long countRetries(String transactionId) {
     return auditRepository.countByTransactionIdAndEventType(

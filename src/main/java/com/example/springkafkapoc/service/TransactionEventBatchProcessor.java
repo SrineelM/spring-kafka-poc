@@ -26,15 +26,15 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <p><b>TUTORIAL — Batch vs Single mode:</b><br>
  * Single mode: 1 message → 1 DB round-trip → 1 commit. Simple but slow under load.<br>
- * Batch mode: N messages → 1 DB round-trip → 1 commit. Far more efficient, but requires
- * per-record idempotency checks because the entire batch is redelivered on retry.
+ * Batch mode: N messages → 1 DB round-trip → 1 commit. Far more efficient, but requires per-record
+ * idempotency checks because the entire batch is redelivered on retry.
  *
  * <p><b>Speed vs. Risk trade-off:</b><br>
  * Batching is 10×–100× faster, but if ONE record fails, Kafka redelivers ALL records in the batch.
  * Records already successfully inserted will be redelivered too — making idempotency mandatory.
  *
- * <p><b>Activation:</b> Only active when {@code SPRING_PROFILES_ACTIVE=batch}.
- * Mutually exclusive with {@code TransactionEventSingleProcessor}.
+ * <p><b>Activation:</b> Only active when {@code SPRING_PROFILES_ACTIVE=batch}. Mutually exclusive
+ * with {@code TransactionEventSingleProcessor}.
  */
 @Slf4j
 @Service
@@ -47,7 +47,7 @@ public class TransactionEventBatchProcessor {
 
   private final Timer batchTimer;
   private final Counter processedCounter;
-  private final Counter skippedCounter;  // Duplicates skipped by idempotency check
+  private final Counter skippedCounter; // Duplicates skipped by idempotency check
   private final Counter dltCounter;
 
   @Autowired
@@ -81,6 +81,7 @@ public class TransactionEventBatchProcessor {
    * Processes a batch of Kafka records in a single DB transaction.
    *
    * <p><b>TUTORIAL — What happens here:</b>
+   *
    * <ol>
    *   <li>Kafka delivers a list of up to 500 records (controlled by {@code max.poll.records}).
    *   <li>A {@link TransactionTemplate} opens ONE DB transaction for the entire batch.
@@ -89,8 +90,8 @@ public class TransactionEventBatchProcessor {
    *   <li>Acknowledge ALL offsets after DB commit.
    * </ol>
    *
-   * <p><b>Backpressure signal:</b> If the batch is consistently full (500 records), the consumer
-   * is lagging behind the producer — a clear signal to scale out consumer pods.
+   * <p><b>Backpressure signal:</b> If the batch is consistently full (500 records), the consumer is
+   * lagging behind the producer — a clear signal to scale out consumer pods.
    */
   @KafkaListener(
       topics = TopicConstants.RAW_TRANSACTIONS,
@@ -121,7 +122,8 @@ public class TransactionEventBatchProcessor {
                       // that were already inserted in the previous (partial) attempt.
                       // Without this check, we'd insert them again → double accounting.
                       if (persistencePort.findById(transactionId).isPresent()) {
-                        log.info("Batch Idempotency: {} already processed. Skipping.", transactionId);
+                        log.info(
+                            "Batch Idempotency: {} already processed. Skipping.", transactionId);
                         skippedCounter.increment();
                         continue; // Skip this record; process the rest of the batch
                       }
@@ -134,7 +136,8 @@ public class TransactionEventBatchProcessor {
                               .accountId(event.getAccountId().toString())
                               .amount(event.getAmount())
                               .timestamp(Instant.ofEpochMilli(event.getTimestamp()))
-                              .status("PROCESSED_BATCH") // Distinguishes batch-mode rows in reporting
+                              .status(
+                                  "PROCESSED_BATCH") // Distinguishes batch-mode rows in reporting
                               .sourcePartition(record.partition()) // Kafka forensics metadata
                               .sourceOffset(record.offset())
                               .build();

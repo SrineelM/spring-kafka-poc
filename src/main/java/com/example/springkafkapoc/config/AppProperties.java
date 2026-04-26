@@ -15,12 +15,12 @@ import org.springframework.stereotype.Component;
  * <p><b>Benefits:</b>
  *
  * <ul>
- *   <li><b>Type Safety:</b> If you put a string where an int is expected, Spring fails at startup
- *       — not at runtime. Errors surface early.
+ *   <li><b>Type Safety:</b> If you put a string where an int is expected, Spring fails at startup —
+ *       not at runtime. Errors surface early.
  *   <li><b>IDE Autocomplete:</b> With the {@code spring-boot-configuration-processor} on the
  *       classpath, your IDE can suggest property names in {@code application.yml}.
- *   <li><b>Grouping:</b> Related settings (Kafka, BigQuery, Outbox) live together in a clean
- *       nested hierarchy rather than scattered {@code @Value} fields across 20 classes.
+ *   <li><b>Grouping:</b> Related settings (Kafka, BigQuery, Outbox) live together in a clean nested
+ *       hierarchy rather than scattered {@code @Value} fields across 20 classes.
  * </ul>
  *
  * <p>The {@code @ConfigurationPropertiesScan} on the main application class tells Spring Boot to

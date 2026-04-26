@@ -40,6 +40,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * model, writes an Outbox record, and audits the event — all atomically.
  *
  * <p><b>Transactional Outbox Pattern (step-by-step):</b>
+ *
  * <ol>
  *   <li>Kafka delivers a {@link TransactionEvent} message.
  *   <li>Idempotency check: was this transaction ID already processed? If yes → ack and skip.
@@ -51,9 +52,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  * </ol>
  *
  * <p><b>PRO TIP — The Outbox Pattern solves dual-write:</b><br>
- * Writing directly to Kafka AND the DB in the same method creates a "dual-write" problem.
- * The Outbox row and the Transaction row share a DB commit, so they succeed or fail together.
- * The actual Kafka publish is deferred to the {@link OutboxPublisherService} relay.
+ * Writing directly to Kafka AND the DB in the same method creates a "dual-write" problem. The
+ * Outbox row and the Transaction row share a DB commit, so they succeed or fail together. The
+ * actual Kafka publish is deferred to the {@link OutboxPublisherService} relay.
  *
  * <p><b>Active when:</b> any profile except {@code batch}. The batch processor is its sibling.
  */
@@ -66,13 +67,13 @@ public class TransactionEventSingleProcessor {
   private final OutboxService outboxService;
   private final PlatformTransactionManager transactionManager; // JPA transaction manager
   private final AuditService auditService;
-  private final ObjectMapper objectMapper;    // Jackson for serializing the outbox payload
+  private final ObjectMapper objectMapper; // Jackson for serializing the outbox payload
   private final MeterRegistry meterRegistry;
 
   // ─── Metrics ──────────────────────────────────────────────────────────────────────────────────
 
-  private final Timer processingTimer;      // Latency per message from receive to ack
-  private final Counter dlqCounter;         // How many messages ended up in the DLT
+  private final Timer processingTimer; // Latency per message from receive to ack
+  private final Counter dlqCounter; // How many messages ended up in the DLT
   // Tracks how many messages are currently in-flight (received but not yet acked)
   private final AtomicLong backlogSize = new AtomicLong(0);
 
@@ -114,17 +115,18 @@ public class TransactionEventSingleProcessor {
    *
    * <p>{@code @RetryableTopic} avoids this by using <em>retry topics</em>. When a message fails,
    * Spring Kafka publishes it to a companion topic (e.g., {@code raw-transactions-retry-0}) with a
-   * future timestamp header. A separate consumer group reads the retry topic and only processes
-   * the message after the delay elapses. The main topic consumer is never blocked.
+   * future timestamp header. A separate consumer group reads the retry topic and only processes the
+   * message after the delay elapses. The main topic consumer is never blocked.
    *
    * <p><b>Configuration explained:</b>
+   *
    * <ul>
    *   <li>{@code attempts="3"}: Try 3 times total (1 original + 2 retries).
    *   <li>{@code delay=1000, multiplier=2.0}: Backoff: 1s, 2s (exponential).
    *   <li>{@code SUFFIX_WITH_INDEX_VALUE}: Retry topics named {@code …-retry-0}, {@code …-retry-1}.
    *   <li>{@code exclude}: These exceptions are NOT retried — they indicate permanent failures
-   *       (corrupt schema, NPE, bad data) where retrying would be pointless. They go straight
-   *       to the DLT.
+   *       (corrupt schema, NPE, bad data) where retrying would be pointless. They go straight to
+   *       the DLT.
    * </ul>
    */
   @RetryableTopic(
@@ -132,10 +134,10 @@ public class TransactionEventSingleProcessor {
       backoff = @Backoff(delay = 1000, multiplier = 2.0),
       topicSuffixingStrategy = TopicSuffixingStrategy.SUFFIX_WITH_INDEX_VALUE,
       exclude = {
-        DataAccessException.class,        // DB is down — retrying won't fix schema issues
-        DeserializationException.class,   // Corrupt bytes — no retry will fix the payload
+        DataAccessException.class, // DB is down — retrying won't fix schema issues
+        DeserializationException.class, // Corrupt bytes — no retry will fix the payload
         SerializationException.class,
-        NullPointerException.class,       // Programming error — fix the code, not the retry
+        NullPointerException.class, // Programming error — fix the code, not the retry
         IllegalArgumentException.class
       })
   @KafkaListener(
@@ -150,7 +152,8 @@ public class TransactionEventSingleProcessor {
     // If this exceeds 1000, it means we're receiving faster than we're committing — alert ops!
     long currentBacklog = backlogSize.incrementAndGet();
     if (currentBacklog > 1000) {
-      log.warn("LAG ALERT: in-flight backlog is high ({}). Consider scaling consumers.", currentBacklog);
+      log.warn(
+          "LAG ALERT: in-flight backlog is high ({}). Consider scaling consumers.", currentBacklog);
     }
 
     try {
@@ -167,7 +170,9 @@ public class TransactionEventSingleProcessor {
 
             log.info(
                 "Processing: transactionId={} partition={} offset={}",
-                transactionId, record.partition(), record.offset());
+                transactionId,
+                record.partition(),
+                record.offset());
 
             try {
               // ─── Idempotency Check ───────────────────────────────────────────────────────────
@@ -175,7 +180,8 @@ public class TransactionEventSingleProcessor {
               // committed to the DB, Kafka will redeliver the same message. Without this check,
               // the transaction would be inserted twice — a double-charge in a payments system!
               if (transactionPersistencePort.findById(transactionId).isPresent()) {
-                log.info("Idempotency: transactionId={} already processed. Skipping.", transactionId);
+                log.info(
+                    "Idempotency: transactionId={} already processed. Skipping.", transactionId);
 
                 // IMPORTANT: We MUST acknowledge even duplicates.
                 // If we don't ack, Kafka will keep redelivering this record forever,
@@ -210,7 +216,8 @@ public class TransactionEventSingleProcessor {
                                 // Convert epoch millis to Instant — stored as UTC in the DB
                                 .timestamp(Instant.ofEpochMilli(event.getTimestamp()))
                                 .status("PROCESSED")
-                                .processedBy("PROCESSOR-SINGLE") // Identifies which processor wrote this row
+                                .processedBy(
+                                    "PROCESSOR-SINGLE") // Identifies which processor wrote this row
                                 .sourcePartition(record.partition()) // Kafka forensics metadata
                                 .sourceOffset(record.offset())
                                 .build();
@@ -219,14 +226,17 @@ public class TransactionEventSingleProcessor {
 
                         // Step 3: Save the Outbox record IN THE SAME TRANSACTION
                         // This is the "Outbox" half of the pattern. The OutboxPublisherService
-                        // will later read this row and relay it to the processed-transactions topic.
+                        // will later read this row and relay it to the processed-transactions
+                        // topic.
                         try {
                           Outbox outbox =
                               Outbox.builder()
                                   .aggregateType("Transaction")
-                                  .aggregateId(transactionId) // Used as Kafka message key at relay time
+                                  .aggregateId(
+                                      transactionId) // Used as Kafka message key at relay time
                                   .destinationTopic(TopicConstants.PROCESSED_TRANSACTIONS)
-                                  .payload(objectMapper.writeValueAsString(event)) // JSON for storage
+                                  .payload(
+                                      objectMapper.writeValueAsString(event)) // JSON for storage
                                   .createdAt(Instant.now())
                                   .processed(false) // Relay service will flip this to true
                                   .build();
@@ -246,7 +256,8 @@ public class TransactionEventSingleProcessor {
               // consumer thread — this is a race-condition duplicate, not a bug.
               // Treat it as idempotent: the data is already there, so we ack and move on.
               log.warn(
-                  "Race-condition duplicate: transactionId={} already exists. Skipping.", transactionId);
+                  "Race-condition duplicate: transactionId={} already exists. Skipping.",
+                  transactionId);
             }
 
             // Step 5: Acknowledge the offset ONLY after the DB transaction has committed.
@@ -265,17 +276,19 @@ public class TransactionEventSingleProcessor {
   /**
    * <b>TUTORIAL — @DltHandler: The Last Resort</b>
    *
-   * <p>After all {@code @RetryableTopic} attempts are exhausted, Spring Kafka routes the message
-   * to the Dead Letter Topic (DLT). This method handles those records.
+   * <p>After all {@code @RetryableTopic} attempts are exhausted, Spring Kafka routes the message to
+   * the Dead Letter Topic (DLT). This method handles those records.
    *
    * <p>This is NOT a retry — the message will NOT be reprocessed automatically. Operations must
    * manually investigate and replay DLT records after fixing the root cause.
    *
    * <p><b>What we do here:</b>
+   *
    * <ul>
    *   <li>Log the failure with full context for incident investigations.
    *   <li>Increment the DLQ Micrometer counter for Grafana alerting.
-   *   <li>Write an audit record so compliance teams can see which transactions were never processed.
+   *   <li>Write an audit record so compliance teams can see which transactions were never
+   *       processed.
    *   <li>Acknowledge the DLT message — otherwise the DLT consumer would loop indefinitely!
    * </ul>
    */
@@ -293,8 +306,8 @@ public class TransactionEventSingleProcessor {
     // we must still acknowledge the DLT message to prevent an infinite loop
     try {
       auditService.recordDlq(
-          record.key(),                               // transactionId
-          record.value().getAccountId().toString(),   // accountId
+          record.key(), // transactionId
+          record.value().getAccountId().toString(), // accountId
           record.partition(),
           record.offset(),
           exceptionMessage);
