@@ -1,0 +1,65 @@
+# =========================================================================
+# TEST OVERRIDE - LOCAL PROFILE (src/test/resources/application-local.yml)
+# =========================================================================
+# This file is picked up by tests INSTEAD OF the main application-local.yml
+# when the "local" profile is active, because Maven adds src/test/resources
+# to the classpath ahead of src/main/resources during the test phase.
+#
+# TUTORIAL: The production "local" profile points at a real local Kafka +
+# Schema Registry on localhost:9092 / localhost:8081. During tests we use
+# Spring's @EmbeddedKafka broker and Confluent's in-memory "mock://"
+# Schema Registry, so we must override those URLs here to stop the Avro
+# serializer from trying to reach a server that doesn't exist.
+# =========================================================================
+
+spring:
+  datasource:
+    url: jdbc:h2:mem:transactiondb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=PostgreSQL
+    username: sa
+    password: password
+    driver-class-name: org.h2.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+
+  h2:
+    console:
+      enabled: false # no need for the console during tests
+
+  kafka:
+    # The embedded broker URL is injected at runtime by @EmbeddedKafka via
+    # the spring.embedded.kafka.brokers system property.  Spring Boot's
+    # EmbeddedKafkaBroker automatically sets this property.
+    bootstrap-servers: ${spring.embedded.kafka.brokers}
+
+    producer:
+      # A unique transactional prefix per JVM run avoids "ProducerFenced"
+      # errors when the embedded broker is recycled between test classes.
+      transaction-id-prefix: "tx-test-"
+
+    properties:
+      # "mock://<scope>" is a Confluent-provided in-process schema registry.
+      # No HTTP server is started – schemas are stored in a static in-memory
+      # map keyed by the scope name.  All producers AND consumers that share
+      # the same scope string will resolve each other's schemas correctly.
+      schema.registry.url: mock://test-scope
+
+  cloud:
+    gcp:
+      alloydb:
+        enabled: false
+      spanner:
+        enabled: false
+      bigquery:
+        enabled: false
+      secretmanager:
+        enabled: false
+
+app:
+  database:
+    spanner-enabled: false
+
+logging:
+  level:
+    com.example.springkafkapoc: DEBUG

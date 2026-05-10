@@ -1,0 +1,218 @@
+# =========================================================================
+# DOCKER-COMPOSE — KRAFT MODE (NO ZOOKEEPER) + COOPERATIVE STICKY DEMO
+# =========================================================================
+#
+# TUTORIAL — KRaft vs. ZooKeeper:
+#   Legacy Kafka used Apache ZooKeeper for cluster metadata storage and
+#   leader election. ZooKeeper is a separate distributed system that adds
+#   operational overhead: separate JVM, separate monitoring, separate
+#   failure domain.
+#
+#   KRaft (Kafka Raft Metadata Protocol, KIP-500) replaces ZooKeeper with
+#   a built-in Raft consensus algorithm. Benefits:
+#     - Fewer moving parts: no ZooKeeper process to manage.
+#     - Faster rebalances: metadata propagation is ~10× faster.
+#     - Larger cluster support: scales to millions of partitions.
+#     - Simpler deployment: single process, single port.
+#
+# COOPERATIVE STICKY DEMO TOPOLOGY:
+#   This compose file starts THREE consumer app instances, each with a
+#   unique POD_NAME (static membership). Together they consume a 9-partition
+#   topic (3 partitions per consumer).
+#
+#   To observe cooperative rebalance:
+#     1. Start: docker compose -f docker-compose-kraft.yml up -d
+#     2. Watch logs: docker compose -f docker-compose-kraft.yml logs -f
+#     3. Scale up: docker compose -f docker-compose-kraft.yml up -d --scale app=4
+#        → Only 2-3 partitions move. Processing continues on the rest.
+#     4. Scale down: docker compose -f docker-compose-kraft.yml stop app-3
+#        → app-3's partitions redistribute. Others keep processing.
+# =========================================================================
+
+services:
+
+  # -------------------------------------------------------------------------
+  # KAFKA BROKER (KRaft Mode — No ZooKeeper)
+  # -------------------------------------------------------------------------
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    hostname: kafka
+    container_name: kafka-kraft
+    ports:
+      - "9092:9092"      # External listener (for the Spring app on your host)
+      - "9093:9093"      # Internal KRaft controller listener
+    environment:
+      # ── KRaft Identity ────────────────────────────────────────────────────
+      # KAFKA_NODE_ID: unique integer ID for this broker/controller node.
+      KAFKA_NODE_ID: 1
+
+      # KAFKA_PROCESS_ROLES: This node acts as BOTH broker and controller.
+      # In production, separate controller nodes (quorum) from broker nodes
+      # for fault isolation. For local dev, combined mode is fine.
+      KAFKA_PROCESS_ROLES: "broker,controller"
+
+      # KAFKA_CONTROLLER_QUORUM_VOTERS: The set of voters for the KRaft quorum.
+      # Format: <node-id>@<host>:<controller-port>
+      # For a single-node setup, only this node votes.
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+
+      # ── Listeners ─────────────────────────────────────────────────────────
+      # PLAINTEXT://kafka:29092  — internal Docker network listener
+      # PLAINTEXT_HOST://0.0.0.0:9092 — external listener (host machine)
+      # CONTROLLER://kafka:9093 — KRaft controller protocol (not for clients)
+      KAFKA_LISTENERS: "PLAINTEXT://kafka:29092,PLAINTEXT_HOST://0.0.0.0:9092,CONTROLLER://kafka:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT,CONTROLLER:PLAINTEXT"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+
+      # ── Replication & Durability ───────────────────────────────────────────
+      # All set to 1 for single-broker local dev. In production, use 3+.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+
+      # ── Log Retention ─────────────────────────────────────────────────────
+      KAFKA_LOG_RETENTION_HOURS: 24
+      KAFKA_LOG_SEGMENT_BYTES: 104857600   # 100MB per segment
+
+      # ── Cooperative Rebalance Server-Side Tuning ───────────────────────────
+      # group.initial.rebalance.delay.ms: How long the coordinator waits for
+      # more consumers to join before triggering the first rebalance.
+      # Increasing this gives all instances time to connect, reducing the
+      # number of rebalance rounds needed at startup.
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 3000
+
+      # KRaft requires a cluster ID. Generate once with:
+      #   docker run --rm confluentinc/cp-kafka:7.6.0 kafka-storage random-uuid
+      # Then set CLUSTER_ID here. This ID must be stable across restarts.
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  # -------------------------------------------------------------------------
+  # SCHEMA REGISTRY
+  # -------------------------------------------------------------------------
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.6.0
+    container_name: schema-registry
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: "kafka:29092"
+      SCHEMA_REGISTRY_LISTENERS: "http://0.0.0.0:8081"
+
+  # -------------------------------------------------------------------------
+  # TOPIC INITIALIZER
+  # Creates the sample topic with 9 partitions to demonstrate cooperative
+  # sticky partition distribution across 3 consumer instances.
+  # -------------------------------------------------------------------------
+  kafka-topic-init:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: kafka-topic-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    # Create the topic only if it doesn't already exist (--if-not-exists is idempotent).
+    # 9 partitions across 3 consumers = 3 partitions per consumer.
+    # Scale to 4 consumers: only 2-3 partitions move (cooperative rebalance in action).
+    command: >
+      bash -c "
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists
+          --topic raw-transactions-topic --partitions 9 --replication-factor 1
+          --config retention.ms=86400000 &&
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists
+          --topic processed-transactions-topic --partitions 9 --replication-factor 1 &&
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists
+          --topic cooperative-demo-topic --partitions 9 --replication-factor 1 &&
+        echo 'Topics created successfully' &&
+        kafka-topics --bootstrap-server kafka:29092 --describe --topic raw-transactions-topic
+      "
+    restart: on-failure
+
+  # -------------------------------------------------------------------------
+  # SPRING APP INSTANCE 1 — Consumer A (static member: pod-1)
+  # -------------------------------------------------------------------------
+  # PRO TIP: Each instance sets a unique POD_NAME. This enables static
+  # membership (group.instance.id) so rolling restarts skip the rebalance
+  # entirely — the broker just waits session.timeout.ms for the pod to
+  # reconnect and then reassigns its prior partitions directly.
+  app-1:
+    build: .
+    container_name: app-1
+    depends_on:
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_started
+      kafka-topic-init:
+        condition: service_completed_successfully
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SPRING_KAFKA_PROPERTIES_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      # Static membership: this pod always reclaims partitions {0,1,2} after restart
+      POD_NAME: pod-1
+    restart: on-failure
+
+  # -------------------------------------------------------------------------
+  # SPRING APP INSTANCE 2 — Consumer B (static member: pod-2)
+  # -------------------------------------------------------------------------
+  app-2:
+    build: .
+    container_name: app-2
+    depends_on:
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_started
+      kafka-topic-init:
+        condition: service_completed_successfully
+    ports:
+      - "8082:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SPRING_KAFKA_PROPERTIES_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      POD_NAME: pod-2
+    restart: on-failure
+
+  # -------------------------------------------------------------------------
+  # SPRING APP INSTANCE 3 — Consumer C (static member: pod-3)
+  # -------------------------------------------------------------------------
+  app-3:
+    build: .
+    container_name: app-3
+    depends_on:
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_started
+      kafka-topic-init:
+        condition: service_completed_successfully
+    ports:
+      - "8083:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SPRING_KAFKA_PROPERTIES_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      POD_NAME: pod-3
+    restart: on-failure
+
+volumes:
+  kafka-data:
+    driver: local

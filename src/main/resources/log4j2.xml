@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    =========================================================================
+    LOG4J2 CONFIGURATION — MIXED-MODE LOGGING STRATEGY
+    =========================================================================
+    In a high-throughput Kafka system (50k+ events/sec), logging can become
+    a bottleneck if it blocks the processing threads (IO Wait).
+
+    STRATEGY:
+    1. ASYNC (INFO/DEBUG): Backed by LMAX Disruptor ring buffer via
+       AsyncLoggerContextSelector. Processing threads return immediately.
+    2. SYNC (ERROR): Bypasses the buffer via a direct Console appender ref.
+       Ensures crash-safe delivery if the JVM dies after an error.
+
+    TRADEOFF TO UNDERSTAND:
+       Mixing sync ERRORs with async INFO/DEBUG BREAKS strict log ordering.
+       An ERROR will appear in the console BEFORE buffered INFO/DEBUG lines
+       from the same logical operation. This is intentional and acceptable
+       for crash-safety, but must be accounted for during incident analysis.
+       Use [seq=%sn] and [traceId] to reconstruct true event order.
+
+    PREREQUISITES:
+       Add to log4j2.component.properties (or JVM args):
+       log4j2.contextSelector=org.apache.logging.log4j.core.async.AsyncLoggerContextSelector
+       Requires: com.lmax:disruptor on the classpath.
+    =========================================================================
+-->
+<Configuration status="WARN">
+    <Properties>
+        <!--
+            LOG PATTERN ANATOMY:
+            %d{...XXX}    — Nanosecond ISO8601 timestamp. Mandatory for pod log interleaving.
+            %sn           — Global Sequence Number. Use to reconstruct order in central collectors.
+            %X{...}       — MDC fields: traceId/spanId (Micrometer), correlationId (custom).
+            %15.15t        — Thread name fixed at 15 chars. Tracks Kafka consumer thread lifecycle.
+            includeLocation=false is set on all async loggers (see component.properties) to
+            avoid expensive stack-walking on every log call.
+        -->
+        <Property name="LOG_PATTERN">
+            %d{yyyy-MM-dd'T'HH:mm:ss.SSSSSSSSSXXX} [%15.15t] %-5level %logger{36} [seq=%sn, traceId=%X{traceId}, spanId=%X{spanId}, correlationId=%X{correlationId}] - %msg%n
+        </Property>
+    </Properties>
+
+    <Appenders>
+        <!--
+            SYNC Console Appender.
+            Used directly (not wrapped) for ERROR-level logs only.
+            Blocking write ensures the message is flushed before the thread continues,
+            guarding against loss in JVM crash / OOM scenarios.
+        -->
+        <Console name="Console" target="SYSTEM_OUT">
+            <PatternLayout pattern="${LOG_PATTERN}"/>
+        </Console>
+
+        <!--
+            ROLLING FILE Appender.
+            Captures the full INFO/DEBUG context leading up to a crash —
+            which the sync-only Console path would lose on JVM OOM.
+            - immediateFlush="false": Batches disk writes for throughput.
+            - SizeBasedTriggeringPolicy: Rolls at 256MB to bound disk usage.
+            - Max 10 files: ~2.5GB max log retention on disk.
+            WARNING: Buffer contents unflushed at hard JVM kill (-9) may be lost.
+                     Prefer a log shipper (Filebeat, Fluentd) reading the file
+                     continuously rather than relying on the file as a sole source of truth.
+        -->
+        <RollingFile name="RollingFile"
+                     fileName="logs/app.log"
+                     filePattern="logs/app-%i.log.gz"
+                     immediateFlush="false">
+            <PatternLayout pattern="${LOG_PATTERN}"/>
+            <Policies>
+                <SizeBasedTriggeringPolicy size="256MB"/>
+            </Policies>
+            <DefaultRolloverStrategy max="10"/>
+        </RollingFile>
+
+        <!--
+            ASYNC WRAPPER for RollingFile.
+            bufferSize="8192": Sized for 50k+/sec event volume.
+            blocking="false":  Under buffer exhaustion, DROP logs rather than
+                               stall Kafka processing threads. At 50k+/sec,
+                               stalling is worse than losing a DEBUG line.
+            includeLocation="false": Disables stack-walking. Critical for throughput.
+            ThresholdFilter: ERRORs are DENIED here — they go sync via Console directly.
+        -->
+        <Async name="AsyncRollingFile" bufferSize="8192" blocking="false" includeLocation="false">
+            <AppenderRef ref="RollingFile"/>
+            <ThresholdFilter level="ERROR" onMatch="DENY" onMismatch="NEUTRAL"/>
+        </Async>
+    </Appenders>
+
+    <Loggers>
+        <!--
+            Root Logger.
+            - AsyncRollingFile: captures INFO/DEBUG/WARN at high throughput.
+            - Console (sync):   captures ERROR directly, crash-safe.
+        -->
+        <Root level="INFO">
+            <AppenderRef ref="AsyncRollingFile"/>
+            <AppenderRef ref="Console" level="ERROR"/>
+        </Root>
+
+        <!--
+            Spring Kafka internals.
+            INFO is acceptable here — rebalance and consumer group events are
+            operationally useful. Promote to WARN in production if ingestion
+            costs become a concern.
+            additivity="false": Prevents double-logging to Root.
+        -->
+        <Logger name="org.springframework.kafka" level="INFO" additivity="false">
+            <AppenderRef ref="AsyncRollingFile"/>
+            <AppenderRef ref="Console" level="ERROR"/>
+        </Logger>
+
+        <!--
+            Apache Kafka client internals.
+            WARN suppresses routine heartbeat/fetch/offset noise.
+        -->
+        <Logger name="org.apache.kafka" level="WARN" additivity="false">
+            <AppenderRef ref="AsyncRollingFile"/>
+            <AppenderRef ref="Console" level="ERROR"/>
+        </Logger>
+
+        <!--
+            Application code.
+            DEBUG enabled — full visibility into business logic and event processing.
+            This is the highest-volume logger; the 8192 buffer is sized for it.
+        -->
+        <Logger name="com.example.springkafkapoc" level="DEBUG" additivity="false">
+            <AppenderRef ref="AsyncRollingFile"/>
+            <AppenderRef ref="Console" level="ERROR"/>
+        </Logger>
+    </Loggers>
+</Configuration>

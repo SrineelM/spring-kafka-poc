@@ -1,0 +1,81 @@
+# =========================================================================
+# LOCAL PROFILE (application-local.yml) — THE DEVELOPER'S SANDBOX
+# =========================================================================
+# Use this profile for development against local containers or mocks.
+# These settings override the base application.yml definitions.
+#
+# TUTORIAL: To keep costs low and feedback loops fast, we use "Lightweight 
+# Replacements" for cloud resources:
+# - H2 (In-memory) instead of Cloud Spanner
+# - Local Docker Kafka instead of Confluent Cloud
+# - Mocked GCP Services
+# =========================================================================
+
+spring:
+  # -----------------------------------------------------------------------
+  # H2 IN-MEMORY DATABASE — Zero-Cost Persistence
+  # -----------------------------------------------------------------------
+  datasource:
+    # MODE=PostgreSQL: Tells H2 to mimic Postgres syntax, ensuring our 
+    # Spanner/AlloyDB compatible queries work during local testing.
+    # DB_CLOSE_DELAY=-1: Ensures data isn't lost if the connection pool closes.
+    url: jdbc:h2:mem:transactiondb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=PostgreSQL
+    username: sa
+    password: password
+    driver-class-name: org.h2.Driver
+
+  jpa:
+    hibernate:
+      # 'update' is safe for local dev to auto-create tables on startup.
+      ddl-auto: update
+
+  # H2 Console: Access live DB state via browser at http://localhost:8080/h2-console
+  # Useful for verifying outbox entries and transaction records visually.
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+  # -----------------------------------------------------------------------
+  # LOCAL KAFKA & SCHEMA REGISTRY
+  # -----------------------------------------------------------------------
+  kafka:
+    # Standard Docker-Compose bootstrap port
+    bootstrap-servers: localhost:9092
+    producer:
+      # Different prefix helps distinguish local test data from real data
+      transaction-id-prefix: "tx-local-"
+    properties:
+      # Points to the local Schema Registry container for Avro serialization
+      schema.registry.url: http://localhost:8081
+
+  # -----------------------------------------------------------------------
+  # GCP MOCKS — Disabling Real Cloud Integrations
+  # -----------------------------------------------------------------------
+  cloud:
+    gcp:
+      alloydb:
+        enabled: false
+      spanner:
+        enabled: false
+      bigquery:
+        enabled: false
+      secretmanager:
+        enabled: false
+
+# -------------------------------------------------------------------------
+# ARCHITECTURE CONTROLS
+# -------------------------------------------------------------------------
+app:
+  database:
+    # Set to false to trigger DynamicPersistenceRouter's H2 fallback path.
+    # This ensures no Spanner-specific code runs during local dev.
+    spanner-enabled: false 
+
+# -------------------------------------------------------------------------
+# DEBUG LOGGING — Full Visibility for Devs
+# -------------------------------------------------------------------------
+logging:
+  level:
+    # Increase verbosity for our app to see transaction lifecycle details.
+    com.example.springkafkapoc: DEBUG

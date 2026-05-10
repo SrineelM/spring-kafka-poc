@@ -1,0 +1,32 @@
+# Maven
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+
+# IDE
+.idea/
+*.iml
+*.iws
+.classpath
+.project
+.settings
+.vscode/
+
+# Build
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+__MACOSX/
+
+# Generated sources
+/src/main/java/com/example/springkafkapoc/avro/
